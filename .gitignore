@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets
+.env
+
+# Installers
+*.sh
+
+# Outputs (non-data)
+outputs/checkpoints/
+outputs/logs/
+outputs/backtest_results/
+
+# Data: CSV features (computed, regenerable)
+outputs/data_cache/*_features.csv

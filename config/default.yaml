@@ -1,0 +1,81 @@
+project:
+  name: "stock_transformer"
+  version: "0.1.0"
+
+data:
+  source: "akshare"
+  tushare_token: ""
+  symbols: ["000001", "600519", "000858"]
+  index: "000300"
+  start_date: "20200101"
+  end_date: "20241231"
+  adjust: "qfq"
+  cache_dir: "outputs/data_cache"
+  cache_expiry_hours: 24
+
+features:
+  ma_periods: [5, 10, 20, 60]
+  ema_periods: [12, 26]
+  macd_fast: 12
+  macd_slow: 26
+  macd_signal: 9
+  rsi_period: 14
+  bollinger_period: 20
+  bollinger_std: 2.0
+  atr_period: 14
+  volume_ma_period: 20
+
+model:
+  d_model: 128
+  n_heads: 8
+  n_layers: 4
+  d_ff: 512
+  dropout: 0.1
+  seq_len: 60
+  pred_len: 5
+  pos_encoding: "sinusoidal"
+  pooling: "attention"
+
+training:
+  lr: 0.0005
+  weight_decay: 0.01
+  batch_size: 64
+  epochs: 100
+  early_stopping_patience: 15
+  gradient_clip_norm: 1.0
+  loss: "huber"
+  huber_delta: 1.0
+  scheduler: "cosine_warmup"
+  warmup_epochs: 5
+  walk_forward:
+    train_window: 500
+    val_window: 100
+    test_window: 50
+    step: 50
+  normalization: "zscore"
+  normalize_per_fold: true
+
+backtest:
+  initial_cash: 1000000
+  commission_rate: 0.0003
+  stamp_tax_rate: 0.001
+  min_commission: 5.0
+  slippage_bps: 5
+  benchmark: "000300"
+  risk_free_rate: 0.02
+
+strategy:
+  buy_threshold: 0.005
+  sell_threshold: -0.005
+  sizing_method: "vol_adjusted"
+  max_position_pct: 0.20
+
+risk:
+  max_positions: 5
+  max_position_pct: 0.25
+  max_drawdown_pct: 0.15
+  reduce_at_pct: 0.10
+  stop_loss_pct: 0.08
+  take_profit_pct: 0.15
+  trailing_stop_pct: 0.05
+  max_sector_pct: 0.40

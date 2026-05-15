@@ -1,0 +1,2 @@
+# Data files tracked by Git LFS
+outputs/data_cache/*.parquet filter=lfs diff=lfs merge=lfs -text
