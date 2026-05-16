@@ -128,7 +128,7 @@ class AShareFetcher:
             raise RuntimeError("tushare stock_basic returned empty")
         df = df.rename(columns={"symbol": "code"})
         df["symbol"] = df["ts_code"].str.replace(r"\.(SH|SZ)", "", regex=True)
-        return df[["symbol", "name"]]
+        return df[["symbol", "name", "industry"]]
 
     def _fetch_stock_list_akshare(self) -> pd.DataFrame:
         import akshare as ak
@@ -211,7 +211,7 @@ class AShareFetcher:
         ts_code = self._ts_code(symbol)
         df = self.ts_pro.fina_indicator(
             ts_code=ts_code,
-            fields="ts_code,ann_date,end_date,roe,roe_dt,netprofit_margin,grossprofit_margin,or_yoy,netprofit_yoy",
+            fields="ts_code,ann_date,end_date,roe,roe_dt,netprofit_margin,grossprofit_margin,or_yoy,netprofit_yoy,ocf_to_netprofit,debt_to_assets,current_ratio",
         )
         if df.empty:
             return pd.DataFrame()
@@ -240,7 +240,7 @@ class AShareFetcher:
 
     def _fetch_income_tushare(self, symbol: str) -> pd.DataFrame:
         ts_code = self._ts_code(symbol)
-        df = self.ts_pro.income(ts_code=ts_code, fields="ts_code,ann_date,end_date,total_revenue,revenue,oper_cost,total_cogs,netprofit")
+        df = self.ts_pro.income(ts_code=ts_code, fields="ts_code,ann_date,end_date,total_revenue,revenue,oper_cost,total_cogs,operate_profit,netprofit")
         if df.empty:
             return pd.DataFrame()
         df = df.rename(columns={"ann_date": "report_date", "end_date": "end_period"})
@@ -262,7 +262,7 @@ class AShareFetcher:
 
     def _fetch_balance_tushare(self, symbol: str) -> pd.DataFrame:
         ts_code = self._ts_code(symbol)
-        df = self.ts_pro.balancesheet(ts_code=ts_code, fields="ts_code,ann_date,end_date,total_assets,total_liab,total_hldr_eqy_exc_min_int")
+        df = self.ts_pro.balancesheet(ts_code=ts_code, fields="ts_code,ann_date,end_date,total_assets,total_liab,total_hldr_eqy_exc_min_int,total_cur_assets,total_cur_liab,inventories,accounts_rec")
         if df.empty:
             return pd.DataFrame()
         df = df.rename(columns={"ann_date": "report_date", "end_date": "end_period"})

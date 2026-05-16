@@ -2,17 +2,14 @@
 全量下载历史数据脚本。
 
 用法:
-  # 下载全 A 股行情 + 财报
+  # 下载全部数据（行情+估值+财报+财报明细+指数+行业）
   python scripts/download_data.py --all --start 20150101
 
-  # 下载指定股票
-  python scripts/download_data.py --symbols 000001 600519 --start 20150101
+  # 只补下载缺失的数据
+  python scripts/download_data.py --all --start 20150101 --skip-cached
 
-  # 只下载行情，跳过财报
-  python scripts/download_data.py --all --no-fundamental
-
-  # 跳过已有缓存的股票（增量场景）
-  python scripts/download_data.py --all --skip-cached
+  # 只下载行情，跳过其他
+  python scripts/download_data.py --all --start 20150101 --no-fundamental --no-valuation --no-statements --no-index
 
   # 查看本地缓存状态
   python scripts/download_data.py --list-cache
@@ -31,15 +28,12 @@ from utils.config import ConfigManager
 from utils.logger import setup_logger
 from data.fetcher import AShareFetcher
 from data.cache import DataCache
-from data.features import FeatureEngine
-from data.fundamental import FundamentalEngine
 
 
 def get_all_symbols(fetcher: AShareFetcher, cache: DataCache, logger, max_age_days: int = 7) -> list:
-    """获取全 A 股股票代码列表，本地缓存 7 天，过期重新拉取。"""
+    """获取全 A 股股票代码列表，本地缓存 7 天。"""
     list_path = Path(cache.cache_dir) / "_stock_list.csv"
 
-    # 尝试读本地缓存
     if list_path.exists():
         mtime = datetime.fromtimestamp(list_path.stat().st_mtime)
         if (datetime.now() - mtime).days < max_age_days:
@@ -48,78 +42,59 @@ def get_all_symbols(fetcher: AShareFetcher, cache: DataCache, logger, max_age_da
             logger.info(f"Stock list from cache ({len(symbols)} stocks, cached {mtime.date()})")
             return symbols
 
-    # 缓存过期或不存在，重新拉取
     df = fetcher.fetch_stock_list()
     if df.empty:
-        raise RuntimeError("Failed to fetch stock list from akshare")
+        raise RuntimeError("Failed to fetch stock list")
 
     codes = df["symbol"].tolist()
 
-    # 过滤: 只保留沪深主板 + 创业板 + 科创板
-    # 60xxxx 沪主板, 00xxxx 深主板, 300xxx 创业板, 688xxx 科创板
-    # 排除 8xxxxx 北交所, 4xxxxx 新三板
     valid = [str(c).zfill(6) for c in codes if str(c).zfill(6)[:2] in ("60", "00", "30", "68") or str(c).zfill(6)[:3] in ("688")]
     valid = sorted(set(valid))
 
-    # 写入本地缓存
-    pd.DataFrame({"symbol": valid}).to_csv(list_path, index=False)
-    logger.info(f"Stock list fetched: {len(codes)} total, {len(valid)} after filter, saved to cache")
+    # Save with industry column if available
+    save_df = pd.DataFrame({"symbol": valid})
+    if "industry" in df.columns:
+        industry_map = df.set_index("symbol")["industry"].to_dict()
+        save_df["industry"] = save_df["symbol"].map(lambda s: industry_map.get(s, ""))
+    save_df.to_csv(list_path, index=False)
 
+    # Also save industry map separately
+    if "industry" in df.columns:
+        ind_path = Path(cache.cache_dir) / "_industry_map.csv"
+        ind_df = df[["symbol", "industry"]].copy()
+        ind_df["symbol"] = ind_df["symbol"].apply(lambda s: str(s).zfill(6))
+        ind_df.to_csv(ind_path, index=False)
+
+    logger.info(f"Stock list fetched: {len(codes)} total, {len(valid)} after filter")
     return valid
 
 
-def download_market_data(
-    symbols: list,
-    start_date: str,
-    end_date: str,
-    fetcher: AShareFetcher,
-    cache: DataCache,
-    adjust: str,
-    skip_cached: bool,
-    logger,
-):
+def download_market_data(symbols, start_date, end_date, fetcher, cache, adjust, skip_cached, logger):
     failed = []
     for i, symbol in enumerate(symbols):
-        # 跳过已有缓存
         if skip_cached and cache.get_last_date(symbol):
             continue
-
         logger.info(f"[{i+1}/{len(symbols)}] Market: {symbol}")
         try:
             df = fetcher.fetch_daily(symbol, start_date, end_date, adjust=adjust)
             if df.empty:
-                logger.warning(f"  {symbol}: no data returned")
                 failed.append(symbol)
                 continue
-
             cache.save_daily(symbol, df)
-            logger.info(f"  {symbol}: {len(df)} rows, {df['datetime'].min().date()} ~ {df['datetime'].max().date()}")
-            time.sleep(1)
+            logger.info(f"  {symbol}: {len(df)} rows")
+            time.sleep(0.2)
         except Exception as e:
             logger.error(f"  {symbol}: {e}")
             failed.append(symbol)
-            time.sleep(3)
-
-    if failed:
-        logger.warning(f"Market data failed: {len(failed)} stocks")
-        _save_failed(failed, "market", logger)
-    logger.info(f"Market data done: {len(symbols) - len(failed)}/{len(symbols)}")
+            time.sleep(1)
+    _report("Market", failed, len(symbols), logger)
 
 
-def download_valuation_data(
-    symbols: list,
-    fetcher: AShareFetcher,
-    cache: DataCache,
-    skip_cached: bool,
-    logger,
-):
+def download_valuation_data(symbols, fetcher, cache, skip_cached, logger):
     failed = []
     for i, symbol in enumerate(symbols):
-        if skip_cached:
-            existing = cache.load_valuation(symbol)
-            if not existing.empty:
-                continue
-
+        if skip_cached and not cache.load_valuation(symbol).empty:
+            continue
         logger.info(f"[{i+1}/{len(symbols)}] Valuation: {symbol}")
         try:
             df = fetcher.fetch_valuation_metrics(symbol)
@@ -128,97 +103,88 @@ def download_valuation_data(
                 continue
             cache.save_valuation(symbol, df)
             logger.info(f"  {symbol}: {len(df)} rows")
-            time.sleep(1)
+            time.sleep(0.2)
         except Exception as e:
             logger.error(f"  {symbol}: {e}")
             failed.append(symbol)
-            time.sleep(3)
-
-    if failed:
-        logger.warning(f"Valuation failed: {len(failed)} stocks")
-        _save_failed(failed, "valuation", logger)
-    logger.info(f"Valuation done: {len(symbols) - len(failed)}/{len(symbols)}")
+            time.sleep(1)
+    _report("Valuation", failed, len(symbols), logger)
 
 
-def download_financial_data(
-    symbols: list,
-    fetcher: AShareFetcher,
-    cache: DataCache,
-    skip_cached: bool,
-    logger,
-):
+def download_financial_data(symbols, fetcher, cache, skip_cached, logger):
     failed = []
     for i, symbol in enumerate(symbols):
-        if skip_cached:
-            existing = cache.load_financial(symbol)
-            if not existing.empty:
-                continue
-
+        if skip_cached and not cache.load_financial(symbol).empty:
+            continue
         logger.info(f"[{i+1}/{len(symbols)}] Financial: {symbol}")
         try:
             df = fetcher.fetch_financial_summary(symbol)
-            if not df.empty:
-                cache.save_financial(symbol, df)
-                logger.info(f"  {symbol}: {len(df)} rows")
-            else:
+            if df.empty:
                 failed.append(symbol)
-            time.sleep(1)
+                continue
+            cache.save_financial(symbol, df)
+            logger.info(f"  {symbol}: {len(df)} rows")
+            time.sleep(0.2)
         except Exception as e:
             logger.error(f"  {symbol}: {e}")
             failed.append(symbol)
-            time.sleep(3)
-
-    if failed:
-        logger.warning(f"Financial failed: {len(failed)} stocks")
-        _save_failed(failed, "financial", logger)
-    logger.info(f"Financial done: {len(symbols) - len(failed)}/{len(symbols)}")
+            time.sleep(1)
+    _report("Financial", failed, len(symbols), logger)
 
 
-def compute_and_save_features(
-    symbols: list,
-    cache: DataCache,
-    feature_engine: FeatureEngine,
-    fundamental_engine: FundamentalEngine,
-    logger,
-):
-    import pandas as pd
-    output_dir = Path("outputs/data_cache")
-    output_dir.mkdir(parents=True, exist_ok=True)
+def download_statements(symbols, fetcher, cache, skip_cached, logger):
+    """Download income/balance/cashflow statements for all symbols."""
+    for stmt_name, fetch_fn, load_fn, save_fn in [
+        ("Income", fetcher.fetch_income_statement, cache.load_income, cache.save_income),
+        ("Balance", fetcher.fetch_balance_sheet, cache.load_balance, cache.save_balance),
+        ("Cashflow", fetcher.fetch_cashflow_statement, cache.load_cashflow, cache.save_cashflow),
+    ]:
+        failed = []
+        for i, symbol in enumerate(symbols):
+            if skip_cached and not load_fn(symbol).empty:
+                continue
+            if (i + 1) % 50 == 1:
+                logger.info(f"[{i+1}/{len(symbols)}] {stmt_name}: ...")
+            try:
+                df = fetch_fn(symbol)
+                if df.empty:
+                    failed.append(symbol)
+                    continue
+                save_fn(symbol, df)
+                time.sleep(0.2)
+            except Exception as e:
+                failed.append(symbol)
+                time.sleep(1)
+        _report(stmt_name, failed, len(symbols), logger)
 
-    for i, symbol in enumerate(symbols):
-        if (i + 1) % 100 == 0:
-            logger.info(f"Features: {i+1}/{len(symbols)}")
 
-        df = cache.load_daily(symbol)
-        if df.empty:
+def download_index_data(start_date, end_date, fetcher, cache, logger):
+    """Download index daily data for CSI 300 and CSI 500."""
+    for idx_code, idx_name in [("000300", "CSI300"), ("000905", "CSI500")]:
+        existing = cache.load_index(idx_code)
+        if not existing.empty:
+            logger.info(f"Index {idx_name} already cached ({len(existing)} rows), skipping")
             continue
-
-        df = feature_engine.compute(df)
-
-        df_val = cache.load_valuation(symbol)
-        if not df_val.empty:
-            fund_feats = fundamental_engine.compute_features(df_val)
-            if "datetime" in df.columns and "trade_date" in fund_feats.columns:
-                fund_feats["datetime"] = pd.to_datetime(fund_feats["trade_date"])
-                fund_feats = fund_feats.set_index("datetime")
-                df = df.set_index("datetime")
-                for col in fundamental_engine.feature_columns:
-                    if col in fund_feats.columns:
-                        df[col] = fund_feats[col]
-                df = df.reset_index()
-
-        df = df.dropna(subset=["close"])
-        df.to_csv(output_dir / f"{symbol}_features.csv", index=False)
-
-    logger.info(f"Features computed for {len(symbols)} symbols")
+        logger.info(f"Downloading index {idx_name} ({idx_code})")
+        try:
+            df = fetcher.fetch_index(idx_code, start_date, end_date)
+            if df.empty:
+                logger.warning(f"Index {idx_name}: no data")
+                continue
+            cache.save_index(idx_code, df)
+            logger.info(f"Index {idx_name}: {len(df)} rows")
+        except Exception as e:
+            logger.error(f"Index {idx_name}: {e}")
 
 
-def _save_failed(failed: list, data_type: str, logger):
-    path = Path("outputs/logs") / f"failed_{data_type}.txt"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
-        f.write("\n".join(failed))
-    logger.info(f"Failed list saved to {path}")
+def _report(name, failed, total, logger):
+    if failed:
+        path = Path("outputs/logs") / f"failed_{name.lower()}.txt"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w") as f:
+            f.write("\n".join(failed))
+        logger.warning(f"{name} failed: {len(failed)}/{total}")
+    logger.info(f"{name} done: {total - len(failed)}/{total}")
 
 
 def main():
@@ -227,9 +193,11 @@ def main():
     parser.add_argument("--symbols", nargs="+", default=None, help="Specific stock symbols")
     parser.add_argument("--start", type=str, default="20150101", help="Start date YYYYMMDD")
     parser.add_argument("--end", type=str, default=None, help="End date (default: today)")
-    parser.add_argument("--no-market", action="store_true", help="Skip market data")
-    parser.add_argument("--no-fundamental", action="store_true", help="Skip fundamental data")
-    parser.add_argument("--no-features", action="store_true", help="Skip feature computation")
+    parser.add_argument("--no-market", action="store_true", help="Skip daily market data")
+    parser.add_argument("--no-fundamental", action="store_true", help="Skip fina_indicator")
+    parser.add_argument("--no-valuation", action="store_true", help="Skip daily_basic/valuation")
+    parser.add_argument("--no-statements", action="store_true", help="Skip income/balance/cashflow")
+    parser.add_argument("--no-index", action="store_true", help="Skip index data")
     parser.add_argument("--skip-cached", action="store_true", help="Skip stocks already in cache")
     parser.add_argument("--list-cache", action="store_true", help="List cached data and exit")
     parser.add_argument("--config", type=str, default=None)
@@ -242,7 +210,7 @@ def main():
     adjust = config.get("data.adjust", "qfq")
 
     fetcher = AShareFetcher(
-        source=config.get("data.source", "akshare"),
+        source=config.get("data.source", "tushare"),
         tushare_token=config.get("data.tushare_token", ""),
     )
     cache = DataCache(cache_dir=config.get("data.cache_dir", "outputs/data_cache"))
@@ -255,7 +223,6 @@ def main():
             print(summary.to_string(index=False))
         return
 
-    # 确定股票列表
     if args.all:
         symbols = get_all_symbols(fetcher, cache, logger)
     elif args.symbols:
@@ -268,14 +235,17 @@ def main():
     if not args.no_market:
         download_market_data(symbols, args.start, end_date, fetcher, cache, adjust, args.skip_cached, logger)
 
-    if not args.no_fundamental:
+    if not args.no_valuation:
         download_valuation_data(symbols, fetcher, cache, args.skip_cached, logger)
+
+    if not args.no_fundamental:
         download_financial_data(symbols, fetcher, cache, args.skip_cached, logger)
 
-    if not args.no_features:
-        feature_engine = FeatureEngine(config.raw)
-        fundamental_engine = FundamentalEngine(fetcher, cache)
-        compute_and_save_features(symbols, cache, feature_engine, fundamental_engine, logger)
+    if not args.no_statements:
+        download_statements(symbols, fetcher, cache, args.skip_cached, logger)
+
+    if not args.no_index:
+        download_index_data(args.start, end_date, fetcher, cache, logger)
 
     logger.info("Download complete.")
 

@@ -109,6 +109,90 @@ class DataCache:
         except Exception as e:
             logger.warning(f"Financial cache write failed for {symbol}: {e}")
 
+    # ---- 财报明细缓存 ----
+
+    def _income_path(self, symbol: str) -> Path:
+        return self.cache_dir / f"income_{symbol}.parquet"
+
+    def _balance_path(self, symbol: str) -> Path:
+        return self.cache_dir / f"balance_{symbol}.parquet"
+
+    def _cashflow_path(self, symbol: str) -> Path:
+        return self.cache_dir / f"cashflow_{symbol}.parquet"
+
+    def load_income(self, symbol: str) -> pd.DataFrame:
+        path = self._income_path(symbol)
+        if not path.exists():
+            return pd.DataFrame()
+        try:
+            return pd.read_parquet(path)
+        except Exception:
+            return pd.DataFrame()
+
+    def save_income(self, symbol: str, df: pd.DataFrame):
+        if df.empty:
+            return
+        try:
+            df.to_parquet(self._income_path(symbol), index=False)
+        except Exception as e:
+            logger.warning(f"Income cache write failed for {symbol}: {e}")
+
+    def load_balance(self, symbol: str) -> pd.DataFrame:
+        path = self._balance_path(symbol)
+        if not path.exists():
+            return pd.DataFrame()
+        try:
+            return pd.read_parquet(path)
+        except Exception:
+            return pd.DataFrame()
+
+    def save_balance(self, symbol: str, df: pd.DataFrame):
+        if df.empty:
+            return
+        try:
+            df.to_parquet(self._balance_path(symbol), index=False)
+        except Exception as e:
+            logger.warning(f"Balance cache write failed for {symbol}: {e}")
+
+    def load_cashflow(self, symbol: str) -> pd.DataFrame:
+        path = self._cashflow_path(symbol)
+        if not path.exists():
+            return pd.DataFrame()
+        try:
+            return pd.read_parquet(path)
+        except Exception:
+            return pd.DataFrame()
+
+    def save_cashflow(self, symbol: str, df: pd.DataFrame):
+        if df.empty:
+            return
+        try:
+            df.to_parquet(self._cashflow_path(symbol), index=False)
+        except Exception as e:
+            logger.warning(f"Cashflow cache write failed for {symbol}: {e}")
+
+    # ---- 指数缓存 ----
+
+    def _index_path(self, index_code: str) -> Path:
+        return self.cache_dir / f"index_{index_code}.parquet"
+
+    def load_index(self, index_code: str) -> pd.DataFrame:
+        path = self._index_path(index_code)
+        if not path.exists():
+            return pd.DataFrame()
+        try:
+            return pd.read_parquet(path)
+        except Exception:
+            return pd.DataFrame()
+
+    def save_index(self, index_code: str, df: pd.DataFrame):
+        if df.empty:
+            return
+        try:
+            df.to_parquet(self._index_path(index_code), index=False)
+        except Exception as e:
+            logger.warning(f"Index cache write failed for {index_code}: {e}")
+
     # ---- 管理操作 ----
 
     def invalidate(self, symbol: str):
