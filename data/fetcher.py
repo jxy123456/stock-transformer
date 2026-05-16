@@ -180,7 +180,7 @@ class AShareFetcher:
         ts_code = self._ts_code(symbol)
         df = self.ts_pro.daily_basic(
             ts_code=ts_code,
-            fields="trade_date,close,pe_ttm,pb,ps_ttm,dv_ratio,dv_ttm,turnover_rate,total_mv,circ_mv",
+            fields="trade_date,close,pe_ttm,pb,ps_ttm,dv_ttm,turnover_rate,total_mv,circ_mv",
         )
         if df.empty:
             return pd.DataFrame()

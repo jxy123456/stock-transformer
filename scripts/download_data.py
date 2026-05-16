@@ -95,14 +95,14 @@ def download_valuation_data(symbols, fetcher, cache, skip_cached, logger):
     for i, symbol in enumerate(symbols):
         if skip_cached and not cache.load_valuation(symbol).empty:
             continue
-        logger.info(f"[{i+1}/{len(symbols)}] Valuation: {symbol}")
+        if (i + 1) % 50 == 1:
+            logger.info(f"[{i+1}/{len(symbols)}] Valuation: ...")
         try:
             df = fetcher.fetch_valuation_metrics(symbol)
             if df.empty:
                 failed.append(symbol)
                 continue
             cache.save_valuation(symbol, df)
-            logger.info(f"  {symbol}: {len(df)} rows")
             time.sleep(0.2)
         except Exception as e:
             logger.error(f"  {symbol}: {e}")
@@ -116,14 +116,14 @@ def download_financial_data(symbols, fetcher, cache, skip_cached, logger):
     for i, symbol in enumerate(symbols):
         if skip_cached and not cache.load_financial(symbol).empty:
             continue
-        logger.info(f"[{i+1}/{len(symbols)}] Financial: {symbol}")
+        if (i + 1) % 50 == 1:
+            logger.info(f"[{i+1}/{len(symbols)}] Financial: ...")
         try:
             df = fetcher.fetch_financial_summary(symbol)
             if df.empty:
                 failed.append(symbol)
                 continue
             cache.save_financial(symbol, df)
-            logger.info(f"  {symbol}: {len(df)} rows")
             time.sleep(0.2)
         except Exception as e:
             logger.error(f"  {symbol}: {e}")
@@ -231,6 +231,19 @@ def main():
         symbols = config.get("data.symbols", ["000001"])
 
     logger.info(f"Download: {len(symbols)} stocks, {args.start} ~ {end_date}")
+
+    # Show current cache status
+    n_daily = len(list(Path(cache.cache_dir).glob("daily_*.parquet")))
+    n_val = len(list(Path(cache.cache_dir).glob("valuation_*.parquet")))
+    n_fin = len(list(Path(cache.cache_dir).glob("financial_*.parquet")))
+    n_inc = len(list(Path(cache.cache_dir).glob("income_*.parquet")))
+    n_bal = len(list(Path(cache.cache_dir).glob("balance_*.parquet")))
+    n_cf = len(list(Path(cache.cache_dir).glob("cashflow_*.parquet")))
+    n_idx = len(list(Path(cache.cache_dir).glob("index_*.parquet")))
+    logger.info(
+        f"Cache status: daily={n_daily} valuation={n_val} financial={n_fin} "
+        f"income={n_inc} balance={n_bal} cashflow={n_cf} index={n_idx}"
+    )
 
     if not args.no_market:
         download_market_data(symbols, args.start, end_date, fetcher, cache, adjust, args.skip_cached, logger)
