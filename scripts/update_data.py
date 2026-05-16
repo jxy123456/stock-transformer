@@ -172,17 +172,16 @@ def main():
         source=config.get("data.source", "akshare"),
         tushare_token=config.get("data.tushare_token", ""),
     )
+    cache = DataCache(cache_dir=config.get("data.cache_dir", "outputs/data_cache"))
 
     if args.all:
         from scripts.download_data import get_all_symbols
-        symbols = get_all_symbols(fetcher, logger)
+        symbols = get_all_symbols(fetcher, cache, logger)
     elif args.symbols:
         symbols = args.symbols
     else:
         symbols = config.get("data.symbols", ["000001"])
     adjust = config.get("data.adjust", "qfq")
-
-    cache = DataCache(cache_dir=config.get("data.cache_dir", "outputs/data_cache"))
 
     logger.info(f"Update: {len(symbols)} stocks, force={args.force}")
 

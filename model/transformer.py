@@ -29,19 +29,19 @@ class StockTransformer(nn.Module):
     def __init__(
         self,
         num_features: int,
-        d_model: int = 128,
+        d_model: int = 256,
         n_heads: int = 8,
-        n_layers: int = 4,
-        d_ff: int = 512,
-        pred_len: int = 5,
-        dropout: float = 0.1,
-        seq_len: int = 60,
+        n_layers: int = 6,
+        d_ff: int = 1024,
+        num_classes: int = 8,
+        dropout: float = 0.15,
+        seq_len: int = 250,
         pos_encoding: str = "sinusoidal",
         pooling: str = "attention",
     ):
         super().__init__()
         self.d_model = d_model
-        self.pred_len = pred_len
+        self.num_classes = num_classes
 
         self.input_proj = nn.Linear(num_features, d_model)
         self.pos_encoding = PositionalEncoding(
@@ -61,7 +61,7 @@ class StockTransformer(nn.Module):
             nn.Linear(d_model, d_model // 2),
             nn.GELU(),
             nn.Dropout(dropout),
-            nn.Linear(d_model // 2, pred_len),
+            nn.Linear(d_model // 2, num_classes),
         )
 
         self._init_weights()
@@ -88,7 +88,7 @@ class StockTransformer(nn.Module):
         else:
             pooled = x.mean(dim=1)  # (batch, d_model)
 
-        out = self.output_head(pooled)  # (batch, pred_len)
+        out = self.output_head(pooled)  # (batch, num_classes)
         return out
 
     def get_attention_weights(self) -> list:

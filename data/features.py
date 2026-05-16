@@ -1,22 +1,9 @@
 import numpy as np
 import pandas as pd
-from loguru import logger
 
 
 class FeatureEngine:
-    def __init__(self, config: dict = None):
-        cfg = config or {}
-        feat = cfg.get("features", {})
-        self.ma_periods = feat.get("ma_periods", [5, 10, 20, 60])
-        self.ema_periods = feat.get("ema_periods", [12, 26])
-        self.macd_fast = feat.get("macd_fast", 12)
-        self.macd_slow = feat.get("macd_slow", 26)
-        self.macd_signal = feat.get("macd_signal", 9)
-        self.rsi_period = feat.get("rsi_period", 14)
-        self.bollinger_period = feat.get("bollinger_period", 20)
-        self.bollinger_std = feat.get("bollinger_std", 2.0)
-        self.atr_period = feat.get("atr_period", 14)
-        self.volume_ma_period = feat.get("volume_ma_period", 20)
+    """32 ratio-based features from OHLCV. No absolute prices."""
 
     def compute(self, df: pd.DataFrame) -> pd.DataFrame:
         if df.empty:
@@ -26,97 +13,131 @@ class FeatureEngine:
         c = result["close"]
         h = result["high"]
         l = result["low"]
+        o = result["open"]
         v = result["volume"]
+        a = result["amount"]
 
-        # --- Moving Averages ---
-        for period in self.ma_periods:
-            result[f"ma_{period}"] = c.rolling(period).mean()
-            result[f"close_ma{period}_ratio"] = c / result[f"ma_{period}"] - 1
-
-        for period in self.ema_periods:
-            result[f"ema_{period}"] = c.ewm(span=period, adjust=False).mean()
-
-        # --- MACD ---
-        ema_fast = c.ewm(span=self.macd_fast, adjust=False).mean()
-        ema_slow = c.ewm(span=self.macd_slow, adjust=False).mean()
-        result["macd_dif"] = ema_fast - ema_slow
-        result["macd_dea"] = result["macd_dif"].ewm(
-            span=self.macd_signal, adjust=False
-        ).mean()
-        result["macd_hist"] = 2 * (result["macd_dif"] - result["macd_dea"])
-
-        # --- RSI ---
-        result["rsi"] = self._compute_rsi(c, self.rsi_period)
-
-        # --- Bollinger Bands ---
-        bb_mid = c.rolling(self.bollinger_period).mean()
-        bb_std = c.rolling(self.bollinger_period).std()
-        result["bb_upper"] = bb_mid + self.bollinger_std * bb_std
-        result["bb_lower"] = bb_mid - self.bollinger_std * bb_std
-        result["bb_pct"] = (c - result["bb_lower"]) / (
-            result["bb_upper"] - result["bb_lower"]
-        )
-
-        # --- ATR ---
-        result["atr"] = self._compute_atr(h, l, c, self.atr_period)
-
-        # --- Volume features ---
-        vol_ma = v.rolling(self.volume_ma_period).mean()
-        result["volume_ratio"] = v / vol_ma
-        result["volume_log"] = np.log1p(v)
-
-        # --- Returns ---
-        result["return_1d"] = c.pct_change(1)
-        result["return_5d"] = c.pct_change(5)
-        result["return_20d"] = c.pct_change(20)
-
-        # --- Volatility ---
-        result["vol_5d"] = result["return_1d"].rolling(5).std()
-        result["vol_20d"] = result["return_1d"].rolling(20).std()
-
-        # --- Intra-day features ---
-        result["amplitude"] = (h - l) / c.shift(1)
-        result["oc_ratio"] = (result["open"] - c.shift(1)) / c.shift(1)
+        self._compute_log_returns(result, c)
+        self._compute_kline_structure(result, o, h, l, c)
+        self._compute_trend_position(result, c)
+        self._compute_price_position(result, c, h, l)
+        self._compute_volume_features(result, v, a)
+        self._compute_volatility(result, c, h, l)
+        self._compute_drawdown(result, c)
 
         return result
 
-    @staticmethod
-    def _compute_rsi(series: pd.Series, period: int) -> pd.Series:
-        delta = series.diff()
-        gain = delta.where(delta > 0, 0.0)
-        loss = (-delta).where(delta < 0, 0.0)
-        avg_gain = gain.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
-        avg_loss = loss.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
-        rs = avg_gain / avg_loss
-        rsi = 100 - (100 / (1 + rs))
-        return rsi
+    # ---- A. Log Returns (5) ----
 
     @staticmethod
-    def _compute_atr(
-        high: pd.Series, low: pd.Series, close: pd.Series, period: int
-    ) -> pd.Series:
-        tr1 = high - low
-        tr2 = (high - close.shift(1)).abs()
-        tr3 = (low - close.shift(1)).abs()
-        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-        atr = tr.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
-        return atr
+    def _compute_log_returns(result: pd.DataFrame, c: pd.Series):
+        for n in [1, 5, 20, 60, 120]:
+            result[f"log_ret_{n}d"] = np.log(c / c.shift(n))
+
+    # ---- A. K-line Structure (4) ----
+
+    @staticmethod
+    def _compute_kline_structure(result: pd.DataFrame, o, h, l, c):
+        prev_c = c.shift(1)
+        result["intraday_ret"] = (c - o) / o
+        result["overnight_ret"] = (o - prev_c) / prev_c
+        result["high_low_range"] = (h - l) / o
+        result["close_position_in_bar"] = (c - l) / (h - l + 1e-8)
+
+    # ---- A. Trend Position (5) ----
+
+    @staticmethod
+    def _compute_trend_position(result: pd.DataFrame, c: pd.Series):
+        for n in [20, 60, 120]:
+            ma = c.rolling(n).mean()
+            result[f"close_to_ma{n}"] = c / ma - 1
+
+        ma20 = c.rolling(20).mean()
+        ma60 = c.rolling(60).mean()
+        ma120 = c.rolling(120).mean()
+
+        result["ma20_to_ma60"] = ma20 / ma60 - 1
+        result["ma60_to_ma120"] = ma60 / ma120 - 1
+
+    # ---- B. Price Position (6) + Drawdown (2) ----
+
+    @staticmethod
+    def _compute_price_position(result: pd.DataFrame, c, h, l):
+        for n in [60, 250]:
+            result[f"price_rank_{n}d"] = c.rolling(n).rank(pct=True)
+            result[f"distance_to_high_{n}d"] = c / h.rolling(n).max() - 1
+            result[f"distance_to_low_{n}d"] = c / l.rolling(n).min() - 1
+
+    # ---- C. Volume (4) ----
+
+    @staticmethod
+    def _compute_volume_features(result: pd.DataFrame, v, a):
+        result["log_amount"] = np.log1p(a)
+
+        v_ma5 = v.rolling(5).mean()
+        v_ma20 = v.rolling(20).mean()
+
+        result["volume_ratio_1_20"] = v / (v_ma20 + 1e-8)
+        result["volume_ratio_5_20"] = v_ma5 / (v_ma20 + 1e-8)
+
+        v_std20 = v.rolling(20).std()
+        result["volume_zscore_20d"] = (v - v_ma20) / (v_std20 + 1e-8)
+
+    # ---- D. Volatility (6) ----
+
+    @staticmethod
+    def _compute_volatility(result: pd.DataFrame, c, h, l):
+        log_ret = np.log(c / c.shift(1))
+
+        for n in [20, 60]:
+            result[f"realized_vol_{n}d"] = np.sqrt((log_ret ** 2).rolling(n).sum())
+
+        neg_ret = log_ret.where(log_ret < 0, 0.0)
+        for n in [20, 60]:
+            result[f"downside_vol_{n}d"] = np.sqrt((neg_ret ** 2).rolling(n).sum())
+
+        result["downside_vol_ratio_20d"] = result["downside_vol_20d"] / (result["realized_vol_20d"] + 1e-8)
+
+        hl_ratio = np.log(h / l)
+        result["high_low_vol_20d"] = np.sqrt((hl_ratio ** 2).rolling(20).sum())
+
+    # ---- B. Drawdown (2) ----
+
+    @staticmethod
+    def _compute_drawdown(result: pd.DataFrame, c: pd.Series):
+        ret = c.pct_change()
+        cum = (1 + ret).cumprod()
+        result["max_drawdown_250d"] = cum.rolling(250).apply(
+            lambda x: _max_dd(x), raw=True
+        )
+
+        rolling_min_60 = c.rolling(60).min()
+        result["rebound_from_low_60d"] = c / rolling_min_60 - 1
 
     @property
     def feature_columns(self) -> list:
-        features = ["open", "high", "low", "close", "volume"]
-        for p in self.ma_periods:
-            features += [f"ma_{p}", f"close_ma{p}_ratio"]
-        for p in self.ema_periods:
-            features.append(f"ema_{p}")
-        features += [
-            "macd_dif", "macd_dea", "macd_hist",
-            "rsi",
-            "bb_upper", "bb_lower", "bb_pct",
-            "atr",
-            "volume_ratio", "volume_log",
-            "return_1d", "return_5d", "return_20d",
-            "vol_5d", "vol_20d",
-            "amplitude", "oc_ratio",
+        return [
+            # A. 收益与趋势 (14)
+            "log_ret_1d", "log_ret_5d", "log_ret_20d", "log_ret_60d", "log_ret_120d",
+            "intraday_ret", "overnight_ret", "high_low_range", "close_position_in_bar",
+            "close_to_ma20", "close_to_ma60", "close_to_ma120",
+            "ma20_to_ma60", "ma60_to_ma120",
+            # B. 价格位置与回撤 (8)
+            "price_rank_60d", "price_rank_250d",
+            "distance_to_high_60d", "distance_to_high_250d",
+            "distance_to_low_60d", "distance_to_low_250d",
+            "max_drawdown_250d", "rebound_from_low_60d",
+            # C. 成交量 (4)
+            "log_amount", "volume_ratio_1_20", "volume_ratio_5_20", "volume_zscore_20d",
+            # D. 波动率 (6)
+            "realized_vol_20d", "realized_vol_60d",
+            "downside_vol_20d", "downside_vol_60d", "downside_vol_ratio_20d", "high_low_vol_20d",
         ]
-        return features
+
+
+def _max_dd(cum_returns: np.ndarray) -> float:
+    if len(cum_returns) < 2:
+        return 0.0
+    peak = np.maximum.accumulate(cum_returns)
+    dd = (cum_returns - peak) / (peak + 1e-8)
+    return dd.min()

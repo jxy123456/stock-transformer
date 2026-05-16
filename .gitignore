@@ -26,10 +26,5 @@ Thumbs.db
 # Installers
 *.sh
 
-# Outputs (non-data)
-outputs/checkpoints/
-outputs/logs/
-outputs/backtest_results/
-
-# Data: CSV features (computed, regenerable)
-outputs/data_cache/*_features.csv
+# Outputs (all data, checkpoints, logs — regenerable)
+outputs/

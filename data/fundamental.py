@@ -7,142 +7,112 @@ from data.cache import DataCache
 
 
 class FundamentalEngine:
-    """将财报数据转化为逐日特征，可拼接到技术特征中供模型使用。"""
+    """16 financial features: 10 from fina_indicator + 6 from detailed statements."""
 
     def __init__(self, fetcher: AShareFetcher = None, cache: DataCache = None):
         self.fetcher = fetcher or AShareFetcher()
         self.cache = cache
 
-    def fetch_and_build(self, symbol: str) -> pd.DataFrame:
-        """获取估值指标历史序列，返回按交易日对齐的 DataFrame。"""
-        df_val = self._fetch_valuation(symbol)
-        df_fin = self._fetch_financial_summary(symbol)
+    def compute(
+        self,
+        stock_df: pd.DataFrame,
+        financial_df: pd.DataFrame,
+        income_df: pd.DataFrame = None,
+        balance_df: pd.DataFrame = None,
+        cashflow_df: pd.DataFrame = None,
+    ) -> pd.DataFrame:
+        result = stock_df.copy()
 
-        # 估值指标是日频的，直接可用
-        result = df_val.copy()
+        # ---- From fina_indicator (10 features) ----
+        if financial_df.empty:
+            for col in self._fina_indicator_cols:
+                result[col] = np.nan
+        else:
+            fin_daily = self._align_to_daily(financial_df, result)
 
-        # 财报是季频的，forward-fill 到日频
-        if not df_fin.empty:
-            df_fin = self._align_financial_to_daily(df_fin, result)
-            for col in df_fin.columns:
-                if col not in result.columns:
-                    result[col] = df_fin[col]
+            roe = fin_daily.get("roe_dt", fin_daily.get("roe", pd.Series(np.nan, index=result.index)))
+            result["roe_ttm"] = roe.values
+
+            result["gross_margin_ttm"] = fin_daily.get("grossprofit_margin", pd.Series(np.nan, index=result.index)).values
+            result["net_margin_ttm"] = fin_daily.get("netprofit_margin", pd.Series(np.nan, index=result.index)).values
+
+            revenue_yoy = fin_daily.get("revenue_yoy", pd.Series(np.nan, index=result.index))
+            profit_yoy = fin_daily.get("profit_yoy", pd.Series(np.nan, index=result.index))
+            result["revenue_yoy"] = revenue_yoy.values
+            result["net_profit_yoy"] = profit_yoy.values
+            result["revenue_yoy_acceleration"] = revenue_yoy.diff().values
+            result["profit_yoy_acceleration"] = profit_yoy.diff().values
+
+            result["ocf_to_net_profit"] = fin_daily.get("ocf_to_netprofit", pd.Series(np.nan, index=result.index)).values
+            result["debt_to_asset"] = fin_daily.get("debt_to_assets", pd.Series(np.nan, index=result.index)).values
+            result["current_ratio"] = fin_daily.get("current_ratio", pd.Series(np.nan, index=result.index)).values
+
+        # ---- From detailed statements (6 features) ----
+        has_detail = (
+            income_df is not None and not income_df.empty
+            and balance_df is not None and not balance_df.empty
+            and cashflow_df is not None and not cashflow_df.empty
+        )
+
+        if not has_detail:
+            for col in self._detail_cols:
+                result[col] = np.nan
+        else:
+            inc_daily = self._align_to_daily(income_df, result)
+            bal_daily = self._align_to_daily(balance_df, result)
+            cf_daily = self._align_to_daily(cashflow_df, result)
+
+            total_assets = bal_daily.get("total_assets", pd.Series(np.nan, index=result.index))
+            equity = bal_daily.get("total_hldr_eqy_exc_min_int", pd.Series(np.nan, index=result.index))
+            ocf = cf_daily.get("n_cashflow_act", pd.Series(np.nan, index=result.index))
+            revenue = inc_daily.get("total_revenue", pd.Series(np.nan, index=result.index))
+            netprofit = inc_daily.get("netprofit", pd.Series(np.nan, index=result.index))
+            inventories = bal_daily.get("inventories", pd.Series(np.nan, index=result.index))
+            accounts_rec = bal_daily.get("accounts_rec", pd.Series(np.nan, index=result.index))
+
+            result["roa_ttm"] = (netprofit / (total_assets + 1e-8)).values
+            result["ocf_to_revenue"] = (ocf / (revenue.abs() + 1e-8)).values
+            result["accrual_to_assets"] = ((netprofit - ocf) / (total_assets.abs() + 1e-8)).values
+            result["equity_ratio"] = (equity / (total_assets + 1e-8)).values
+
+            inv_growth = inventories.pct_change(4)
+            rec_growth = accounts_rec.pct_change(4)
+            rev_growth = revenue.pct_change(4)
+            result["inventory_growth_minus_revenue"] = (inv_growth - rev_growth).values
+            result["receivable_growth_minus_revenue"] = (rec_growth - rev_growth).values
 
         return result
 
-    def compute_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        """从原始基本面数据中计算衍生特征。"""
-        if df.empty:
-            return df
+    _fina_indicator_cols = [
+        "roe_ttm", "gross_margin_ttm", "net_margin_ttm",
+        "revenue_yoy", "net_profit_yoy",
+        "revenue_yoy_acceleration", "profit_yoy_acceleration",
+        "ocf_to_net_profit", "debt_to_asset", "current_ratio",
+    ]
 
-        result = df.copy()
-
-        # PE 分位数（滚动 250 日）
-        if "pe" in result.columns:
-            result["pe_quantile"] = result["pe"].rolling(250, min_periods=60).rank(pct=True)
-
-        # PB 分位数
-        if "pb" in result.columns:
-            result["pb_quantile"] = result["pb"].rolling(250, min_periods=60).rank(pct=True)
-
-        # ROE 变化
-        if "roe" in result.columns:
-            result["roe_change"] = result["roe"].diff()
-
-        # 营收增速变化
-        if "revenue_yoy" in result.columns:
-            result["revenue_accel"] = result["revenue_yoy"].diff()
-
-        # 净利润增速变化
-        if "profit_yoy" in result.columns:
-            result["profit_accel"] = result["profit_yoy"].diff()
-
-        return result
+    _detail_cols = [
+        "roa_ttm", "ocf_to_revenue", "accrual_to_assets", "equity_ratio",
+        "inventory_growth_minus_revenue", "receivable_growth_minus_revenue",
+    ]
 
     @property
     def feature_columns(self) -> list:
-        return [
-            "pe", "pe_quantile",
-            "pb", "pb_quantile",
-            "roe", "roe_change",
-            "revenue_yoy", "revenue_accel",
-            "profit_yoy", "profit_accel",
-            "dv_ratio",  # 股息率
-        ]
-
-    def _fetch_valuation(self, symbol: str) -> pd.DataFrame:
-        if self.cache:
-            cached = self.cache.get(f"{symbol}_val", "19900101", "20991231")
-            if not cached.empty:
-                return cached
-
-        df = self.fetcher.fetch_valuation_metrics(symbol)
-        if df.empty:
-            return pd.DataFrame()
-
-        # 标准化列名
-        col_map = {
-            "trade_date": "datetime",
-            "date": "datetime",
-            "pe_ttm": "pe",
-            "pe": "pe",
-            "pb": "pb",
-            "ps_ttm": "ps",
-            "ps": "ps",
-            "dv_ratio": "dv_ratio",
-            "dv_ttm": "dv_ratio",
-            "total_mv": "market_cap",
-        }
-        df = df.rename(columns={k: v for k, v in col_map.items() if k in df.columns})
-
-        if "datetime" in df.columns:
-            df["datetime"] = pd.to_datetime(df["datetime"])
-            df = df.sort_values("datetime").reset_index(drop=True)
-
-        if self.cache:
-            self.cache.put(f"{symbol}_val", "19900101", "20991231", df)
-
-        return df
-
-    def _fetch_financial_summary(self, symbol: str) -> pd.DataFrame:
-        df = self.fetcher.fetch_financial_summary(symbol)
-        if df.empty:
-            return pd.DataFrame()
-
-        # 提取关键字段
-        col_map = {}
-        for col in df.columns:
-            col_lower = col.lower()
-            if "roe" in col_lower:
-                col_map[col] = "roe"
-            elif "营收" in col and "同比" in col:
-                col_map[col] = "revenue_yoy"
-            elif "净利" in col and "同比" in col:
-                col_map[col] = "profit_yoy"
-            elif "日期" in col or "report" in col_lower:
-                col_map[col] = "report_date"
-
-        df = df.rename(columns=col_map)
-
-        if "report_date" in df.columns:
-            df["report_date"] = pd.to_datetime(df["report_date"])
-
-        return df
+        return self._fina_indicator_cols + self._detail_cols
 
     @staticmethod
-    def _align_financial_to_daily(
-        financial: pd.DataFrame, daily: pd.DataFrame
-    ) -> pd.DataFrame:
-        """将季频财报 forward-fill 到日频。"""
-        if financial.empty or daily.empty or "datetime" not in daily.columns:
-            return pd.DataFrame()
+    def _align_to_daily(financial: pd.DataFrame, daily: pd.DataFrame) -> pd.DataFrame:
+        if financial.empty or daily.empty:
+            return pd.DataFrame(index=daily.index)
 
-        # 用日频日期对财报做 forward fill
-        fin_cols = [c for c in financial.columns if c != "report_date"]
-        if not fin_cols or "report_date" not in financial.columns:
-            return pd.DataFrame()
+        date_col = "report_date" if "report_date" in financial.columns else "end_period"
+        if date_col not in financial.columns:
+            return pd.DataFrame(index=daily.index)
 
-        fin = financial.set_index("report_date").sort_index()
-        daily_dates = daily["datetime"]
+        fin = financial.copy()
+        fin[date_col] = pd.to_datetime(fin[date_col])
+        fin = fin.set_index(date_col).sort_index()
+        fin = fin[~fin.index.duplicated(keep="last")]
+
+        daily_dates = pd.to_datetime(daily["datetime"])
         aligned = fin.reindex(daily_dates, method="ffill")
-        return aligned.reset_index(drop=True)
+        return aligned

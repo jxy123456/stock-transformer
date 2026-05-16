@@ -29,16 +29,23 @@ class Trainer:
         self.clip_norm = training_cfg.get("gradient_clip_norm", 1.0)
         self.warmup_epochs = training_cfg.get("warmup_epochs", 5)
 
-        loss_name = training_cfg.get("loss", "huber")
-        if loss_name == "huber":
+        loss_name = training_cfg.get("loss", "cross_entropy")
+        if loss_name == "cross_entropy":
+            self.criterion = nn.CrossEntropyLoss()
+            self.is_classification = True
+        elif loss_name == "huber":
             delta = training_cfg.get("huber_delta", 1.0)
             self.criterion = nn.HuberLoss(delta=delta)
+            self.is_classification = False
         elif loss_name == "mse":
             self.criterion = nn.MSELoss()
+            self.is_classification = False
         elif loss_name == "mae":
             self.criterion = nn.L1Loss()
+            self.is_classification = False
         else:
-            self.criterion = nn.HuberLoss(delta=1.0)
+            self.criterion = nn.CrossEntropyLoss()
+            self.is_classification = True
 
         self.optimizer = AdamW(
             self.model.parameters(), lr=self.lr, weight_decay=self.weight_decay
@@ -61,7 +68,10 @@ class Trainer:
             y = y.to(self.device)
 
             pred = self.model(x)
-            loss = self.criterion(pred, y)
+            if self.is_classification:
+                loss = self.criterion(pred, y)
+            else:
+                loss = self.criterion(pred, y)
 
             self.optimizer.zero_grad()
             loss.backward()

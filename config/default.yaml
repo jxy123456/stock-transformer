@@ -1,57 +1,53 @@
 project:
   name: "stock_transformer"
-  version: "0.1.0"
+  version: "0.2.0"
 
 data:
-  source: "akshare"
-  tushare_token: ""
+  source: "tushare"
+  tushare_token: "8b175c44de6cbb39ab31a390b1eada13d83191491743a1ed2883f154"
   symbols: ["000001", "600519", "000858"]
   index: "000300"
-  start_date: "20200101"
-  end_date: "20241231"
+  start_date: "20150101"
+  end_date: "20260515"
   adjust: "qfq"
   cache_dir: "outputs/data_cache"
   cache_expiry_hours: 24
 
 features:
-  ma_periods: [5, 10, 20, 60]
-  ema_periods: [12, 26]
-  macd_fast: 12
-  macd_slow: 26
-  macd_signal: 9
-  rsi_period: 14
-  bollinger_period: 20
-  bollinger_std: 2.0
-  atr_period: 14
-  volume_ma_period: 20
+  num_features: 80
+  bucket_type: "5d"
+
+preprocessing:
+  warmup_rows: 250
+  winsorize_sigma: 5.0
 
 model:
-  d_model: 128
+  d_model: 256
   n_heads: 8
-  n_layers: 4
-  d_ff: 512
-  dropout: 0.1
-  seq_len: 60
+  n_layers: 6
+  d_ff: 1024
+  dropout: 0.15
+  seq_len: 250
+  num_classes: 8
   pred_len: 5
   pos_encoding: "sinusoidal"
   pooling: "attention"
 
 training:
-  lr: 0.0005
+  lr: 0.0003
   weight_decay: 0.01
-  batch_size: 64
-  epochs: 100
-  early_stopping_patience: 15
+  batch_size: 32
+  epochs: 80
+  early_stopping_patience: 20
   gradient_clip_norm: 1.0
-  loss: "huber"
-  huber_delta: 1.0
+  loss: "cross_entropy"
   scheduler: "cosine_warmup"
   warmup_epochs: 5
   walk_forward:
-    train_window: 500
-    val_window: 100
-    test_window: 50
-    step: 50
+    train_window: 1000
+    val_window: 200
+    test_window: 100
+    step: 100
   normalization: "zscore"
   normalize_per_fold: true
 

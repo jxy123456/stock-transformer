@@ -23,6 +23,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+import pandas as pd
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.config import ConfigManager
@@ -33,8 +35,20 @@ from data.features import FeatureEngine
 from data.fundamental import FundamentalEngine
 
 
-def get_all_symbols(fetcher: AShareFetcher, logger) -> list:
-    """获取全 A 股股票代码列表，过滤掉北交所和退市股。"""
+def get_all_symbols(fetcher: AShareFetcher, cache: DataCache, logger, max_age_days: int = 7) -> list:
+    """获取全 A 股股票代码列表，本地缓存 7 天，过期重新拉取。"""
+    list_path = Path(cache.cache_dir) / "_stock_list.csv"
+
+    # 尝试读本地缓存
+    if list_path.exists():
+        mtime = datetime.fromtimestamp(list_path.stat().st_mtime)
+        if (datetime.now() - mtime).days < max_age_days:
+            df_local = pd.read_csv(list_path)
+            symbols = [str(s).zfill(6) for s in df_local["symbol"].tolist()]
+            logger.info(f"Stock list from cache ({len(symbols)} stocks, cached {mtime.date()})")
+            return symbols
+
+    # 缓存过期或不存在，重新拉取
     df = fetcher.fetch_stock_list()
     if df.empty:
         raise RuntimeError("Failed to fetch stock list from akshare")
@@ -44,10 +58,14 @@ def get_all_symbols(fetcher: AShareFetcher, logger) -> list:
     # 过滤: 只保留沪深主板 + 创业板 + 科创板
     # 60xxxx 沪主板, 00xxxx 深主板, 300xxx 创业板, 688xxx 科创板
     # 排除 8xxxxx 北交所, 4xxxxx 新三板
-    valid = [c for c in codes if c[:2] in ("60", "00", "30", "68") or c[:3] in ("688")]
+    valid = [str(c).zfill(6) for c in codes if str(c).zfill(6)[:2] in ("60", "00", "30", "68") or str(c).zfill(6)[:3] in ("688")]
+    valid = sorted(set(valid))
 
-    logger.info(f"Total A-share stocks: {len(codes)}, after filter: {len(valid)}")
-    return sorted(valid)
+    # 写入本地缓存
+    pd.DataFrame({"symbol": valid}).to_csv(list_path, index=False)
+    logger.info(f"Stock list fetched: {len(codes)} total, {len(valid)} after filter, saved to cache")
+
+    return valid
 
 
 def download_market_data(
@@ -76,11 +94,11 @@ def download_market_data(
 
             cache.save_daily(symbol, df)
             logger.info(f"  {symbol}: {len(df)} rows, {df['datetime'].min().date()} ~ {df['datetime'].max().date()}")
-            time.sleep(0.5)
+            time.sleep(1)
         except Exception as e:
             logger.error(f"  {symbol}: {e}")
             failed.append(symbol)
-            time.sleep(1)
+            time.sleep(3)
 
     if failed:
         logger.warning(f"Market data failed: {len(failed)} stocks")
@@ -110,11 +128,11 @@ def download_valuation_data(
                 continue
             cache.save_valuation(symbol, df)
             logger.info(f"  {symbol}: {len(df)} rows")
-            time.sleep(0.5)
+            time.sleep(1)
         except Exception as e:
             logger.error(f"  {symbol}: {e}")
             failed.append(symbol)
-            time.sleep(1)
+            time.sleep(3)
 
     if failed:
         logger.warning(f"Valuation failed: {len(failed)} stocks")
@@ -144,11 +162,11 @@ def download_financial_data(
                 logger.info(f"  {symbol}: {len(df)} rows")
             else:
                 failed.append(symbol)
-            time.sleep(0.5)
+            time.sleep(1)
         except Exception as e:
             logger.error(f"  {symbol}: {e}")
             failed.append(symbol)
-            time.sleep(1)
+            time.sleep(3)
 
     if failed:
         logger.warning(f"Financial failed: {len(failed)} stocks")
@@ -239,7 +257,7 @@ def main():
 
     # 确定股票列表
     if args.all:
-        symbols = get_all_symbols(fetcher, logger)
+        symbols = get_all_symbols(fetcher, cache, logger)
     elif args.symbols:
         symbols = args.symbols
     else:
