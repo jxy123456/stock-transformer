@@ -103,7 +103,7 @@ def download_valuation_data(symbols, fetcher, cache, skip_cached, logger):
                 failed.append(symbol)
                 continue
             cache.save_valuation(symbol, df)
-            time.sleep(0.2)
+            time.sleep(0.35)  # daily_basic 限频 200次/分钟
         except Exception as e:
             logger.error(f"  {symbol}: {e}")
             failed.append(symbol)
