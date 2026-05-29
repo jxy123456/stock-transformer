@@ -5,10 +5,6 @@ import pandas as pd
 
 from data.features.base import BaseFeatureEngine
 
-# 1 日收益率桶
-BINS_1D = [-np.inf, -0.05, -0.03, -0.01, 0.01, 0.03, 0.05, np.inf]
-CENTERS_1D = np.array([-0.06, -0.04, -0.02, 0.0, 0.02, 0.04, 0.06])
-
 # 5 日收益率桶
 BINS_5D = [-np.inf, -0.10, -0.07, -0.05, -0.03, -0.01, 0.01, 0.03, 0.05, 0.07, 0.10, np.inf]
 CENTERS_5D = np.array([-0.12, -0.085, -0.06, -0.04, -0.02, 0.0, 0.02, 0.04, 0.06, 0.085, 0.12])
@@ -17,7 +13,7 @@ CENTERS_5D = np.array([-0.12, -0.085, -0.06, -0.04, -0.02, 0.0, 0.02, 0.04, 0.06
 BINS_20D = [-np.inf, -0.25, -0.18, -0.12, -0.08, -0.03, 0.03, 0.08, 0.12, 0.18, 0.25, np.inf]
 CENTERS_20D = np.array([-0.30, -0.215, -0.15, -0.10, -0.055, 0.0, 0.055, 0.10, 0.15, 0.215, 0.30])
 
-LOSS_WEIGHTS = {"1d": 0.3, "5d": 0.4, "20d": 0.3}
+LOSS_WEIGHTS = {"5d": 0.6, "20d": 0.4}
 
 
 class V1_45FeatureEngine(BaseFeatureEngine):

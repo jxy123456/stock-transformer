@@ -4,7 +4,7 @@ import numpy as np
 from scipy import stats
 from scipy.special import softmax
 
-from data.features.v1_45 import CENTERS_1D, CENTERS_5D, CENTERS_20D
+from data.features.v1_45 import CENTERS_5D, CENTERS_20D
 
 
 def expected_returns(logits, centers):
@@ -39,18 +39,15 @@ def group_returns(scores: np.ndarray, actual_rets: np.ndarray, n_groups=5) -> di
     return result
 
 
-def compute_metrics(logits_1d, logits_5d, logits_20d,
-                    actual_1d, actual_5d, actual_20d) -> dict:
-    """多周期综合评估。"""
-    er_1d = expected_returns(logits_1d, CENTERS_1D)
+def compute_metrics(logits_5d, logits_20d, actual_5d, actual_20d) -> dict:
+    """双周期综合评估。"""
     er_5d = expected_returns(logits_5d, CENTERS_5D)
     er_20d = expected_returns(logits_20d, CENTERS_20D)
 
-    score = 0.2 * er_1d + 0.5 * er_5d + 0.3 * er_20d
+    score = 0.6 * er_5d + 0.4 * er_20d
 
     metrics = {}
     for name, pred, actual, centers in [
-        ("1d", er_1d, actual_1d, CENTERS_1D),
         ("5d", er_5d, actual_5d, CENTERS_5D),
         ("20d", er_20d, actual_20d, CENTERS_20D),
     ]:

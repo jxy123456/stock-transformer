@@ -13,7 +13,7 @@ from loguru import logger
 from torch.utils.data import Dataset
 
 from data.features.base import FEATURE_CACHE_VERSION
-from data.features.v1_45 import V1_45FeatureEngine, BINS_1D, BINS_5D, BINS_20D, bucketize
+from data.features.v1_45 import V1_45FeatureEngine, BINS_5D, BINS_20D, bucketize
 from data.stock_selector import load_symbols
 
 
@@ -45,7 +45,7 @@ def _sliding_samples(feature_arr, close_arr, seq_len):
 
     feature_arr: [T, F]
     close_arr:   [T]
-    返回: X [N, seq_len, F], Y [N, 3]
+    返回: X [N, seq_len, F], Y [N, 2]
     """
     T, F = feature_arr.shape
     if T < seq_len + 25:
@@ -65,19 +65,17 @@ def _sliding_samples(feature_arr, close_arr, seq_len):
 
     # Y: future returns, vectorized
     t_indices = np.arange(usable) + seq_len - 1
-    future_close_1d = close_arr[t_indices + 1]
-    future_close_5d = close_arr[t_indices + 5]
-    future_close_20d = close_arr[t_indices + 20]
     current_close = close_arr[t_indices]
 
-    ret_1d = future_close_1d / current_close - 1
-    ret_5d = future_close_5d / current_close - 1
-    ret_20d = future_close_20d / current_close - 1
+    future_mean_5d = np.array([close_arr[t + 1: t + 6].mean() for t in t_indices])
+    future_mean_20d = np.array([close_arr[t + 1: t + 21].mean() for t in t_indices])
 
-    y1 = np.array([bucketize(r, BINS_1D) for r in ret_1d], dtype=np.int64)
+    ret_5d = future_mean_5d / current_close - 1
+    ret_20d = future_mean_20d / current_close - 1
+
     y5 = np.array([bucketize(r, BINS_5D) for r in ret_5d], dtype=np.int64)
     y20 = np.array([bucketize(r, BINS_20D) for r in ret_20d], dtype=np.int64)
-    Y = np.stack([y1, y5, y20], axis=1).astype(np.int64)
+    Y = np.stack([y5, y20], axis=1).astype(np.int64)
 
     return X.astype(np.float32), Y
 
@@ -275,13 +273,15 @@ def run_data_pipeline(config: dict = None):
         "feature_columns": fcols,
         "seq_len": seq_len,
         "n_features": len(fcols),
+        "label_target": config.get("labels", {}).get("target", "future_mean_return"),
+        "label_horizons": [5, 20],
         "normalization": {"mean": mean.tolist(), "std": std.tolist()},
     }
     with open(out / "norm_stats.json", "w") as f:
         json.dump(meta, f, indent=2, default=str)
 
     from collections import Counter
-    for horizon, idx in [("1d", 0), ("5d", 1), ("20d", 2)]:
+    for horizon, idx in [("5d", 0), ("20d", 1)]:
         cnt = Counter(Y_all[splits == 2, idx].tolist())
         logger.info(f"  {horizon} buckets: {dict(sorted(cnt.items()))}")
 

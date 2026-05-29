@@ -14,7 +14,8 @@ features:
   feature_dim: 39
 
 labels:
-  periods: [1, 5, 20]
+  target: "future_mean_return"
+  periods: [5, 20]
 
 preprocessing:
   winsorize_pct: [0.01, 0.99]
@@ -39,7 +40,7 @@ training:
   weight_decay: 0.0001
   gradient_clip: 1.0
   warmup_epochs: 2
-  loss_weights: {1d: 0.3, 5d: 0.4, 20d: 0.3}
+  loss_weights: {5d: 0.6, 20d: 0.4}
   early_stopping_patience: 5
 
 data_split:
@@ -58,4 +59,4 @@ backtest:
   stop_loss: 0.08
   take_profit: 0.15
   buy_threshold: 0.0
-  scoring_weights: {1d: 0.2, 5d: 0.5, 20d: 0.3}
+  scoring_weights: {5d: 0.6, 20d: 0.4}

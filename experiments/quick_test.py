@@ -14,7 +14,7 @@ from utils.logger import setup_logger
 from pipeline.config import load_experiment
 from pipeline.data_pipeline import FEATURE_CACHE_VERSION
 from pipeline.factory import create_model, create_trainer
-from data.features.v1_45 import V1_45FeatureEngine, BINS_1D, BINS_5D, BINS_20D
+from data.features.v1_45 import V1_45FeatureEngine, BINS_5D, BINS_20D
 from data.stock_selector import load_symbols
 from backtest.engine_v2 import BacktestEngine
 from torch.utils.data import Dataset
@@ -39,9 +39,8 @@ def _sliding_samples(feat, close, seq_len):
     X = X[:usable]
 
     t = np.arange(usable) + seq_len - 1
-    r1 = close[t + 1] / close[t] - 1
-    r5 = close[t + 5] / close[t] - 1
-    r20 = close[t + 20] / close[t] - 1
+    r5 = np.array([close[i + 1: i + 6].mean() / close[i] - 1 for i in t])
+    r20 = np.array([close[i + 1: i + 21].mean() / close[i] - 1 for i in t])
 
     def bkt(r, bins):
         out = np.full(len(r), len(bins) - 2, dtype=np.int64)
@@ -49,7 +48,7 @@ def _sliding_samples(feat, close, seq_len):
             out[(r >= lo) & (r < hi)] = i
         return out
 
-    Y = np.stack([bkt(r1, BINS_1D), bkt(r5, BINS_5D), bkt(r20, BINS_20D)], axis=1)
+    Y = np.stack([bkt(r5, BINS_5D), bkt(r20, BINS_20D)], axis=1)
     return X.astype(np.float32), Y.astype(np.int64)
 
 
@@ -145,13 +144,12 @@ def main():
 
     # ---- eval ----
     from training.evaluator import compute_metrics
-    pred_1d, pred_5d, pred_20d = trainer.predict(val_loader)
+    pred_5d, pred_20d = trainer.predict(val_loader)
     actuals = np.stack([val_ds[i][1].numpy() for i in range(len(val_ds))])
-    metrics = compute_metrics(pred_1d, pred_5d, pred_20d,
+    metrics = compute_metrics(pred_5d, pred_20d,
                               actuals[:, 0].astype(float),
-                              actuals[:, 1].astype(float),
-                              actuals[:, 2].astype(float))
-    logger.info(f"Rank IC: 1d={metrics['rank_ic_1d']:.4f}, 5d={metrics['rank_ic_5d']:.4f}, 20d={metrics['rank_ic_20d']:.4f}")
+                              actuals[:, 1].astype(float))
+    logger.info(f"Rank IC: 5d={metrics['rank_ic_5d']:.4f}, 20d={metrics['rank_ic_20d']:.4f}")
 
     # ---- backtest ----
     engine = BacktestEngine(config)

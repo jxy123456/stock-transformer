@@ -10,9 +10,9 @@ from loguru import logger
 from scipy.special import softmax
 
 from backtest.base import BaseBacktest
-from data.features.v1_45 import CENTERS_1D, CENTERS_5D, CENTERS_20D, V1_45FeatureEngine
+from data.features.v1_45 import CENTERS_5D, CENTERS_20D, V1_45FeatureEngine
 
-BUCKET_CENTERS = {"1d": CENTERS_1D, "5d": CENTERS_5D, "20d": CENTERS_20D}
+BUCKET_CENTERS = {"5d": CENTERS_5D, "20d": CENTERS_20D}
 
 
 class EventDrivenBacktest(BaseBacktest):
@@ -23,7 +23,7 @@ class EventDrivenBacktest(BaseBacktest):
         bc = config.get("backtest", {})
         initial_cash = bc.get("initial_cash", 1_000_000)
         top_k = bc.get("top_k", 50)
-        weights = bc.get("scoring_weights", {"1d": 0.2, "5d": 0.5, "20d": 0.3})
+        weights = bc.get("scoring_weights", {"5d": 0.6, "20d": 0.4})
         risk = bc.get("risk", {})
         max_positions = risk.get("max_positions", 30)
         single_pct = risk.get("single_pct", 0.05)
@@ -110,10 +110,9 @@ class EventDrivenBacktest(BaseBacktest):
                 x = torch.FloatTensor(window.values).unsqueeze(0).to(device)
                 with torch.no_grad():
                     out = model(x)
-                er_1d = softmax(out["logits_1d"].cpu().numpy(), axis=-1) @ CENTERS_1D
                 er_5d = softmax(out["logits_5d"].cpu().numpy(), axis=-1) @ CENTERS_5D
                 er_20d = softmax(out["logits_20d"].cpu().numpy(), axis=-1) @ CENTERS_20D
-                scores[s] = (weights["1d"] * er_1d[0] + weights["5d"] * er_5d[0] +
+                scores[s] = (weights["5d"] * er_5d[0] +
                              weights["20d"] * er_20d[0])
 
             for s, h in list(holdings.items()):

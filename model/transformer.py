@@ -1,4 +1,4 @@
-"""StockMultiHorizonTransformer: Transformer Encoder + 三周期分类头。"""
+"""StockMultiHorizonTransformer: Transformer Encoder + 双周期分类头。"""
 
 import torch
 import torch.nn as nn
@@ -16,7 +16,6 @@ class StockMultiHorizonTransformer(BaseModel):
         num_layers=4,
         dim_feedforward=256,
         dropout=0.20,
-        num_bins_1d=7,
         num_bins_5d=11,
         num_bins_20d=11,
     ):
@@ -35,9 +34,9 @@ class StockMultiHorizonTransformer(BaseModel):
             batch_first=True,
             norm_first=True,
         )
-        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers,
+                                             enable_nested_tensor=False)
 
-        self.head_1d = self._make_head(d_model, 64, num_bins_1d, dropout)
         self.head_5d = self._make_head(d_model, 64, num_bins_5d, dropout)
         self.head_20d = self._make_head(d_model, 64, num_bins_20d, dropout)
 
@@ -69,7 +68,6 @@ class StockMultiHorizonTransformer(BaseModel):
         last_hidden = encoded[:, -1, :]
 
         return {
-            "logits_1d": self.head_1d(last_hidden),
             "logits_5d": self.head_5d(last_hidden),
             "logits_20d": self.head_20d(last_hidden),
         }

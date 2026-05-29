@@ -36,7 +36,7 @@ class Trainer:
         self.warmup_epochs = tcfg.get("warmup_epochs", 5)
         self.lr = tcfg.get("lr", 1e-4)
         wd = tcfg.get("weight_decay", 1e-4)
-        self.loss_weights = tcfg.get("loss_weights", {"1d": 0.3, "5d": 0.4, "20d": 0.3})
+        self.loss_weights = tcfg.get("loss_weights", {"5d": 0.6, "20d": 0.4})
 
         self.criterion = nn.CrossEntropyLoss()
         self.optimizer = AdamW(self.model.parameters(), lr=self.lr, weight_decay=wd)
@@ -56,12 +56,11 @@ class Trainer:
         for x, y in loader:
             x = x.to(self.device, non_blocking=True)
             y = y.to(self.device, non_blocking=True)
-            y1, y5, y20 = y[:, 0], y[:, 1], y[:, 2]
+            y5, y20 = y[:, 0], y[:, 1]
 
             with torch.amp.autocast("cuda", enabled=self.mixed_precision):
                 out = self.model(x)
                 loss = (
-                    self.loss_weights["1d"] * self.criterion(out["logits_1d"], y1) +
                     self.loss_weights["5d"] * self.criterion(out["logits_5d"], y5) +
                     self.loss_weights["20d"] * self.criterion(out["logits_20d"], y20)
                 )
@@ -82,11 +81,10 @@ class Trainer:
         for x, y in loader:
             x = x.to(self.device, non_blocking=True)
             y = y.to(self.device, non_blocking=True)
-            y1, y5, y20 = y[:, 0], y[:, 1], y[:, 2]
+            y5, y20 = y[:, 0], y[:, 1]
             with torch.amp.autocast("cuda", enabled=self.mixed_precision):
                 out = self.model(x)
                 loss = (
-                    self.loss_weights["1d"] * self.criterion(out["logits_1d"], y1) +
                     self.loss_weights["5d"] * self.criterion(out["logits_5d"], y5) +
                     self.loss_weights["20d"] * self.criterion(out["logits_20d"], y20)
                 )
@@ -145,18 +143,16 @@ class Trainer:
 
     @torch.no_grad()
     def predict(self, loader: DataLoader):
-        """返回 logits_1d, logits_5d, logits_20d 的 numpy 数组。"""
+        """返回 logits_5d, logits_20d 的 numpy 数组。"""
         self.model.eval()
-        out_1d, out_5d, out_20d = [], [], []
+        out_5d, out_20d = [], []
         for x, _ in loader:
             x = x.to(self.device, non_blocking=True)
             with torch.amp.autocast("cuda", enabled=self.mixed_precision):
                 o = self.model(x)
-            out_1d.append(o["logits_1d"].cpu().numpy())
             out_5d.append(o["logits_5d"].cpu().numpy())
             out_20d.append(o["logits_20d"].cpu().numpy())
         return (
-            np.concatenate(out_1d, axis=0),
             np.concatenate(out_5d, axis=0),
             np.concatenate(out_20d, axis=0),
         )

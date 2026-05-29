@@ -18,11 +18,11 @@ from pipeline.config import load_experiment
 from pipeline.factory import create_model, create_trainer
 from pipeline.data_pipeline import FEATURE_CACHE_VERSION
 from data.stock_selector import load_symbols
-from data.features.v1_45 import V1_45FeatureEngine, BINS_1D, BINS_5D, BINS_20D
+from data.features.v1_45 import V1_45FeatureEngine, BINS_5D, BINS_20D
 
 
 def _sliding_samples(feat, close, seq_len):
-    """向量化滑动窗口生成样本。X: [N,seq_len,F], Y: [N,3]"""
+    """向量化滑动窗口生成样本。X: [N,seq_len,F], Y: [N,2]"""
     T, F = feat.shape
     if T < seq_len + 25:
         return None, None
@@ -35,16 +35,15 @@ def _sliding_samples(feat, close, seq_len):
         return None, None
     X = X[:usable]
     t = np.arange(usable) + seq_len - 1
-    r1 = close[t + 1] / close[t] - 1
-    r5 = close[t + 5] / close[t] - 1
-    r20 = close[t + 20] / close[t] - 1
+    r5 = np.array([close[i + 1: i + 6].mean() / close[i] - 1 for i in t])
+    r20 = np.array([close[i + 1: i + 21].mean() / close[i] - 1 for i in t])
 
     def bkt(r, bins):
         out = np.full(len(r), len(bins) - 2, dtype=np.int64)
         for i, (lo, hi) in enumerate(zip(bins[:-1], bins[1:])):
             out[(r >= lo) & (r < hi)] = i
         return out
-    Y = np.stack([bkt(r1, BINS_1D), bkt(r5, BINS_5D), bkt(r20, BINS_20D)], axis=1)
+    Y = np.stack([bkt(r5, BINS_5D), bkt(r20, BINS_20D)], axis=1)
     return X.astype(np.float32), Y.astype(np.int64)
 
 
@@ -180,19 +179,25 @@ def main():
     # ---- eval ----
     logger.info("Evaluating...")
     model.eval()
-    correct_1d, correct_5d, correct_20d, total = 0, 0, 0, 0
+    correct_5d, correct_20d, total = 0, 0, 0
+    pred_5d_all, pred_20d_all = [], []
     with torch.no_grad():
         for x, y in val_loader:
             x, y = x.to(device), y.to(device)
             o = model(x)
-            correct_1d += (o["logits_1d"].argmax(-1) == y[:, 0]).sum().item()
-            correct_5d += (o["logits_5d"].argmax(-1) == y[:, 1]).sum().item()
-            correct_20d += (o["logits_20d"].argmax(-1) == y[:, 2]).sum().item()
+            p5 = o["logits_5d"].argmax(-1)
+            p20 = o["logits_20d"].argmax(-1)
+            correct_5d += (p5 == y[:, 0]).sum().item()
+            correct_20d += (p20 == y[:, 1]).sum().item()
+            pred_5d_all.extend(p5.cpu().numpy().tolist())
+            pred_20d_all.extend(p20.cpu().numpy().tolist())
             total += len(y)
-    logger.info(f"Val accuracy: 1d={correct_1d/total:.4f} 5d={correct_5d/total:.4f} 20d={correct_20d/total:.4f}")
+    logger.info(f"Val accuracy: 5d={correct_5d/total:.4f} 20d={correct_20d/total:.4f}")
     from collections import Counter
-    logger.info(f"1d pred dist: {Counter(o['logits_1d'].argmax(-1).cpu().numpy())}")
-    logger.info(f"1d true dist: {Counter(Y_all[val_mask][:, 0].tolist())}")
+    logger.info(f"5d pred dist: {Counter(pred_5d_all)}")
+    logger.info(f"5d true dist: {Counter(Y_all[val_mask][:, 0].tolist())}")
+    logger.info(f"20d pred dist: {Counter(pred_20d_all)}")
+    logger.info(f"20d true dist: {Counter(Y_all[val_mask][:, 1].tolist())}")
     logger.info(f"Saved: {ckpt_path}")
 
 

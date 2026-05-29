@@ -16,7 +16,7 @@ from pipeline.config import load_experiment
 from pipeline.factory import create_model, create_trainer, load_checkpoint
 from training.dataset import StockDataset, winsorize, normalize_zscore
 from training.evaluator import compute_metrics, expected_returns
-from data.features.v1_45 import CENTERS_1D, CENTERS_5D, CENTERS_20D
+from data.features.v1_45 import CENTERS_5D, CENTERS_20D
 
 
 def run_experiment(exp_name: str, backtest_only=False, eval_only=False):
@@ -134,12 +134,11 @@ def _do_train(cfg, engine, symbols, start, end, out_dir, cache):
     torch.save(model.state_dict(), out_dir / "model.pt")
 
     # evaluate
-    pred_1d, pred_5d, pred_20d = trainer.predict(val_loader)
+    pred_5d, pred_20d = trainer.predict(val_loader)
     actuals = np.stack([val_ds[i][1].numpy() for i in range(len(val_ds))])
-    actual_1d = actuals[:, 0]
-    actual_5d = actuals[:, 1]
-    actual_20d = actuals[:, 2]
-    metrics = compute_metrics(pred_1d, pred_5d, pred_20d, actual_1d, actual_5d, actual_20d)
+    actual_5d = actuals[:, 0]
+    actual_20d = actuals[:, 1]
+    metrics = compute_metrics(pred_5d, pred_20d, actual_5d, actual_20d)
     with open(out_dir / "metrics.json", "w") as f:
         json.dump(metrics, f, indent=2, default=str)
     logger.info(f"Metrics: rank_ic_5d={metrics.get('rank_ic_5d', 0):.4f}, "

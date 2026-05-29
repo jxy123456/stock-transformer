@@ -10,7 +10,7 @@ import torch
 from loguru import logger
 from scipy.special import softmax
 
-from data.features.v1_45 import CENTERS_1D, CENTERS_5D, CENTERS_20D
+from data.features.v1_45 import CENTERS_5D, CENTERS_20D
 
 
 class BacktestEngine:
@@ -27,7 +27,7 @@ class BacktestEngine:
         self.min_commission = bc.get("min_commission", 5.0)
         self.stop_loss = bc.get("stop_loss", risk.get("stop_loss", 0.08))
         self.take_profit = bc.get("take_profit", risk.get("take_profit", 0.15))
-        self.scoring_weights = bc.get("scoring_weights", {"1d": 0.2, "5d": 0.5, "20d": 0.3})
+        self.scoring_weights = bc.get("scoring_weights", {"5d": 0.6, "20d": 0.4})
         self.buy_threshold = bc.get("buy_threshold", 0.0)
         self.seq_len = config.get("features", {}).get("seq_len", 120)
 
@@ -194,12 +194,10 @@ class BacktestEngine:
         x_t = torch.FloatTensor(np.stack(batch_x)).to(device)
         with torch.no_grad():
             out = model(x_t)
-        er1 = softmax(out["logits_1d"].cpu().numpy(), axis=-1) @ CENTERS_1D
         er5 = softmax(out["logits_5d"].cpu().numpy(), axis=-1) @ CENTERS_5D
         er20 = softmax(out["logits_20d"].cpu().numpy(), axis=-1) @ CENTERS_20D
         for i, s in enumerate(batch_syms):
-            scores[s] = (self.scoring_weights["1d"] * er1[i].item() +
-                         self.scoring_weights["5d"] * er5[i].item() +
+            scores[s] = (self.scoring_weights["5d"] * er5[i].item() +
                          self.scoring_weights["20d"] * er20[i].item())
 
     def _get_limit(self, symbol: str) -> float:

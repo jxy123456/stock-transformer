@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from data.features.v1_45 import BINS_1D, BINS_5D, BINS_20D, bucketize
+from data.features.v1_45 import BINS_5D, BINS_20D, bucketize
 
 
 class StockDataset(Dataset):
@@ -12,7 +12,7 @@ class StockDataset(Dataset):
 
     每个样本 = (输入序列, 未来标签)。
     输入: [seq_len, num_features] float32
-    标签: (target_1d, target_5d, target_20d) 均为 int64 bucket index
+    标签: (target_5d, target_20d) 均为 int64 bucket index
     """
 
     def __init__(self, feature_df, seq_len=120, feature_columns=None):
@@ -33,25 +33,23 @@ class StockDataset(Dataset):
         x = self.data[idx: idx + self.seq_len]
         t = idx + self.seq_len - 1  # 预测日 index
 
-        ret_1d = self._future_ret(t, 1)
-        ret_5d = self._future_ret(t, 5)
-        ret_20d = self._future_ret(t, 20)
+        ret_5d = self._future_mean_ret(t, 5)
+        ret_20d = self._future_mean_ret(t, 20)
 
-        y1 = bucketize(ret_1d, BINS_1D)
         y5 = bucketize(ret_5d, BINS_5D)
         y20 = bucketize(ret_20d, BINS_20D)
 
         return (torch.FloatTensor(x),
-                torch.LongTensor([y1, y5, y20]))
+                torch.LongTensor([y5, y20]))
 
-    def _future_ret(self, t, horizon):
-        """close[t+horizon] / close[t] - 1, NaN if out of bounds."""
+    def _future_mean_ret(self, t, horizon):
+        """未来 horizon 日平均收盘价 / 当前收盘价 - 1。"""
         f = t + horizon
         if f >= len(self.close):
             return np.nan
         if self.close[t] <= 0:
             return np.nan
-        return float(self.close[f] / self.close[t] - 1)
+        return float(np.nanmean(self.close[t + 1: f + 1]) / self.close[t] - 1)
 
 
 class MultiStockDataset(Dataset):
