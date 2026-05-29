@@ -15,6 +15,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from utils.logger import setup_logger
 from pipeline.config import load_experiment
+from pipeline.data_pipeline import FEATURE_CACHE_VERSION
 from pipeline.factory import create_model, load_checkpoint
 from backtest.engine_v2 import BacktestEngine
 
@@ -35,6 +36,9 @@ def main():
 
     # ---- load features ----
     feat_dir = Path("outputs/features")
+    version_path = feat_dir / "_feature_cache_version.txt"
+    if not version_path.exists() or version_path.read_text().strip() != FEATURE_CACHE_VERSION:
+        raise RuntimeError("Feature cache is stale. Run pipeline/data_pipeline.py before backtesting.")
     feature_dfs = {}
     stock_list = config.get("data", {}).get("stock_list", "liquid100")
     from data.stock_selector import load_symbols

@@ -12,6 +12,7 @@ import torch
 from loguru import logger
 from torch.utils.data import Dataset
 
+from data.features.base import FEATURE_CACHE_VERSION
 from data.features.v1_45 import V1_45FeatureEngine, BINS_1D, BINS_5D, BINS_20D, bucketize
 from data.stock_selector import load_symbols
 
@@ -121,6 +122,12 @@ def run_data_pipeline(config: dict = None):
     engine = V1_45FeatureEngine(config, _FC(cache_dir), index_data=index_data, industry_map=industry_map)
     feat_dir = Path("outputs/features")
     feat_dir.mkdir(parents=True, exist_ok=True)
+    version_path = feat_dir / "_feature_cache_version.txt"
+    use_feature_cache = version_path.exists() and version_path.read_text().strip() == FEATURE_CACHE_VERSION
+    if not use_feature_cache:
+        logger.info("Feature cache version changed; recomputing features")
+        for old_feature in feat_dir.glob("*.parquet"):
+            old_feature.unlink()
 
     # ---- step 1: individual features ----
     logger.info("=== Step 1: 个股特征 ===")
@@ -129,7 +136,7 @@ def run_data_pipeline(config: dict = None):
         if (i + 1) % 30 == 1:
             logger.info(f"  [{i+1}/{len(symbols)}] ...")
         fpath = feat_dir / f"{s}.parquet"
-        if fpath.exists():
+        if use_feature_cache and fpath.exists():
             feature_dfs[s] = pd.read_parquet(fpath)
         else:
             df = engine.compute(s, start_date, end_date)
@@ -207,6 +214,7 @@ def run_data_pipeline(config: dict = None):
 
     for s, df in feature_dfs.items():
         df.to_parquet(feat_dir / f"{s}.parquet")
+    version_path.write_text(FEATURE_CACHE_VERSION)
 
     # ---- step 3: numpy samples ----
     logger.info("=== Step 3: numpy 批量生成样本 ===")

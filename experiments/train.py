@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from utils.logger import setup_logger
 from pipeline.config import load_experiment
 from pipeline.factory import create_model, create_trainer
+from pipeline.data_pipeline import FEATURE_CACHE_VERSION
 from data.stock_selector import load_symbols
 from data.features.v1_45 import V1_45FeatureEngine, BINS_1D, BINS_5D, BINS_20D
 
@@ -72,6 +73,9 @@ def main():
 
     # ---- load features ----
     feat_dir = Path("outputs/features")
+    version_path = feat_dir / "_feature_cache_version.txt"
+    if not version_path.exists() or version_path.read_text().strip() != FEATURE_CACHE_VERSION:
+        raise RuntimeError("Feature cache is stale. Run pipeline/data_pipeline.py before training.")
     fcols = V1_45FeatureEngine(config, None).feature_columns
     feature_dfs = {}
     for s in symbols:

@@ -7,9 +7,10 @@ import numpy as np
 import pandas as pd
 import torch
 from loguru import logger
+from scipy.special import softmax
 
 from backtest.base import BaseBacktest
-from data.features.v1_45 import CENTERS_1D, CENTERS_5D, CENTERS_20D
+from data.features.v1_45 import CENTERS_1D, CENTERS_5D, CENTERS_20D, V1_45FeatureEngine
 
 BUCKET_CENTERS = {"1d": CENTERS_1D, "5d": CENTERS_5D, "20d": CENTERS_20D}
 
@@ -46,74 +47,91 @@ class EventDrivenBacktest(BaseBacktest):
         holdings = {}  # {symbol: {"shares": int, "cost": float}}
         equity = []
         trades = []
+        pending_buys = []
+        pending_sells = {}
+
+        feature_cols = [c for c in V1_45FeatureEngine(config, None).feature_columns
+                        if any(c in df.columns for df in data.values())]
 
         logger.info(f"Backtest: {len(trading_days)} trading days, {len(data)} stocks")
 
         for di in range(start_idx, len(trading_days)):
             td = trading_days[di]
 
-            # mark to market
-            prices = {}
+            prices, opens = {}, {}
             for s in data:
                 df = data[s]
                 df_dt = pd.to_datetime(df["datetime"]).dt.date
                 mask = df_dt == td
                 if mask.any():
-                    prices[s] = float(df[mask].iloc[0]["close"])
+                    row = df[mask].iloc[0]
+                    prices[s] = float(row["close"])
+                    opens[s] = float(row["open"]) if "open" in row else prices[s]
 
-            # check stop-loss
-            to_sell = []
+            for s, reason in list(pending_sells.items()):
+                if s not in holdings:
+                    pending_sells.pop(s, None)
+                    continue
+                px = opens.get(s)
+                if px is None:
+                    continue
+                cash += holdings[s]["shares"] * px * 0.998  # ~stamp tax + commission
+                trades.append({"date": td, "symbol": s, "action": "SELL",
+                               "price": px, "shares": holdings[s]["shares"],
+                               "cost": holdings[s]["cost"], "reason": reason})
+                del holdings[s]
+                pending_sells.pop(s, None)
+
+            for s in pending_buys:
+                if s in holdings or len(holdings) >= max_positions:
+                    continue
+                px = opens.get(s)
+                if px is None or px <= 0:
+                    continue
+                shares = int(cash * single_pct / px / 100) * 100
+                if shares >= 100 and shares * px <= cash:
+                    cash -= shares * px * 1.0003  # commission
+                    holdings[s] = {"shares": shares, "cost": px}
+                    trades.append({"date": td, "symbol": s, "action": "BUY",
+                                   "price": px, "shares": shares})
+            pending_buys = []
+
+            # generate signals after today's close; orders execute next open
+            scores = {}
+            for s in data:
+                df = data[s]
+                df_dt = pd.to_datetime(df["datetime"]).dt.date
+                mask = df_dt <= td
+                if mask.sum() < seq_len:
+                    continue
+                window = df.reindex(columns=feature_cols, fill_value=0.0).iloc[mask.values][-seq_len:]
+                if len(window) < seq_len:
+                    continue
+                x = torch.FloatTensor(window.values).unsqueeze(0).to(device)
+                with torch.no_grad():
+                    out = model(x)
+                er_1d = softmax(out["logits_1d"].cpu().numpy(), axis=-1) @ CENTERS_1D
+                er_5d = softmax(out["logits_5d"].cpu().numpy(), axis=-1) @ CENTERS_5D
+                er_20d = softmax(out["logits_20d"].cpu().numpy(), axis=-1) @ CENTERS_20D
+                scores[s] = (weights["1d"] * er_1d[0] + weights["5d"] * er_5d[0] +
+                             weights["20d"] * er_20d[0])
+
             for s, h in list(holdings.items()):
                 px = prices.get(s, h["cost"])
                 pnl = (px - h["cost"]) / h["cost"]
                 if pnl <= -stop_loss:
-                    to_sell.append(s)
+                    pending_sells[s] = "stop_loss"
+                elif scores.get(s, 0) <= 0:
+                    pending_sells[s] = "signal"
 
-            for s in to_sell:
-                px = prices.get(s, holdings[s]["cost"])
-                cash += holdings[s]["shares"] * px * 0.998  # ~stamp tax + commission
-                trades.append({"date": td, "symbol": s, "action": "SELL",
-                               "price": px, "shares": holdings[s]["shares"], "reason": "stop_loss"})
-                del holdings[s]
-
-            # generate predictions
-            if len(holdings) < max_positions:
-                scores = {}
-                features_cols = [c for c in data[list(data.keys())[0]].columns
-                                 if c not in ("datetime", "symbol", "close")]
-                for s in data:
-                    if s in holdings:
-                        continue
-                    df = data[s]
-                    df_dt = pd.to_datetime(df["datetime"]).dt.date
-                    mask = df_dt <= td
-                    if mask.sum() < seq_len:
-                        continue
-                    window = df[features_cols].iloc[mask.values][-seq_len:]
-                    if len(window) < seq_len:
-                        continue
-                    x = torch.FloatTensor(window.values).unsqueeze(0).to(device)
-                    with torch.no_grad():
-                        out = model(x)
-                    from scipy.special import softmax
-                    er_1d = softmax(out["logits_1d"].cpu().numpy(), axis=-1) @ CENTERS_1D
-                    er_5d = softmax(out["logits_5d"].cpu().numpy(), axis=-1) @ CENTERS_5D
-                    er_20d = softmax(out["logits_20d"].cpu().numpy(), axis=-1) @ CENTERS_20D
-                    scores[s] = (weights["1d"] * er_1d[0] + weights["5d"] * er_5d[0] +
-                                 weights["20d"] * er_20d[0])
-
-                # select top K
-                ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-                slots = max_positions - len(holdings)
-                for s, score in ranked[:slots]:
-                    if s in prices and scores[s] > 0:
-                        px = prices[s]
-                        shares = int(cash * single_pct / px / 100) * 100
-                        if shares >= 100 and shares * px <= cash:
-                            cash -= shares * px * 1.0003  # commission
-                            holdings[s] = {"shares": shares, "cost": px}
-                            trades.append({"date": td, "symbol": s, "action": "BUY",
-                                           "price": px, "shares": shares})
+            ranked = sorted(
+                ((s, score) for s, score in scores.items()
+                 if score > 0 and s not in holdings and s not in pending_sells),
+                key=lambda x: x[1],
+                reverse=True,
+            )
+            slots = min(top_k, max_positions - len(holdings) + len(pending_sells))
+            pending_buys = [s for s, _ in ranked[:max(slots, 0)]]
 
             # mark equity
             total_mv = cash + sum(h["shares"] * prices.get(s, h["cost"])

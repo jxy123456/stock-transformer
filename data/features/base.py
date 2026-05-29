@@ -6,6 +6,9 @@ from pathlib import Path
 import pandas as pd
 
 
+FEATURE_CACHE_VERSION = "v2_no_lookahead"
+
+
 class BaseFeatureEngine(ABC):
     """特征计算接口：输入原始数据，输出特征DataFrame。
 
@@ -35,12 +38,16 @@ class BaseFeatureEngine(ABC):
         ...
 
     def save(self, symbol: str, df: pd.DataFrame):
-        path = Path(self.cache.dir) / "features" / f"{symbol}.parquet"
+        path = Path("outputs/features") / f"{symbol}.parquet"
         path.parent.mkdir(parents=True, exist_ok=True)
         df.to_parquet(path)
+        (path.parent / "_feature_cache_version.txt").write_text(FEATURE_CACHE_VERSION)
 
     def load(self, symbol: str) -> pd.DataFrame:
         path = Path("outputs/features") / f"{symbol}.parquet"
+        version_path = path.parent / "_feature_cache_version.txt"
+        if not version_path.exists() or version_path.read_text().strip() != FEATURE_CACHE_VERSION:
+            return pd.DataFrame()
         if path.exists():
             return pd.read_parquet(path)
         return pd.DataFrame()

@@ -74,7 +74,8 @@ class BacktestEngine:
         holdings = {}  # {symbol: {shares, cost, highest}}
         equity = []
         trades = []
-        pending_buys = set()  # T+1 tracking
+        pending_buys = []  # signals generated after previous close
+        pending_sells = {}  # {symbol: reason}
 
         n_dates = len(all_dates)
         prev_prices = {}
@@ -95,43 +96,19 @@ class BacktestEngine:
             if not prices:
                 continue
 
-            # ---- execute pending T+1 orders from yesterday ----
-            to_remove = []
-            for s, order in list(holdings.items()):
-                if order.get("_pending", False):
-                    px = opens.get(s, prices.get(s, order["cost"]))
-                    limit_check_px = prev_prices.get(s, px)
-                    limit = self._get_limit(s)
-                    if px > limit_check_px * (1 + limit) or px < limit_check_px * (1 - limit):
-                        to_remove.append(s)  # hit limit, cancel order
-                        continue
-                    order.pop("_pending")
-                    holdings[s] = order
-                    pending_buys.discard(s)
-
-            for s in to_remove:
-                cash += holdings[s]["shares"] * prices.get(s, holdings[s]["cost"]) * 0.998
-                trades.append({"date": str(td_date), "symbol": s, "action": "SELL",
-                               "price": prices.get(s), "shares": holdings[s]["shares"],
-                               "cost": holdings[s]["cost"], "reason": "limit_hit"})
-                del holdings[s]
-
-            pending_buys.clear()
-
-            # ---- check stop-loss / take-profit on current holdings ----
-            forced_sells = []
-            for s, h in holdings.items():
-                px = prices.get(s, h["cost"])
-                pnl = (px - h["cost"]) / h["cost"]
-                if pnl <= -self.stop_loss:
-                    forced_sells.append((s, "stop_loss"))
-                elif pnl >= self.take_profit:
-                    forced_sells.append((s, "take_profit"))
-                else:
-                    h["highest"] = max(h.get("highest", px), px)
-
-            for s, reason in forced_sells:
+            # ---- execute orders generated after the previous close ----
+            still_pending_sells = {}
+            for s, reason in list(pending_sells.items()):
+                if s not in holdings:
+                    continue
+                px = opens.get(s, prices.get(s, holdings[s]["cost"]))
+                prev_px = prev_prices.get(s)
+                limit = self._get_limit(s)
+                if prev_px and px <= prev_px * (1 - limit):
+                    still_pending_sells[s] = reason
+                    continue
                 px = prices.get(s, holdings[s]["cost"])
+                px = opens.get(s, px)
                 trade_val = px * holdings[s]["shares"]
                 cost = max(trade_val * self.commission, self.min_commission) + trade_val * self.stamp_tax
                 cash += trade_val - cost
@@ -139,15 +116,41 @@ class BacktestEngine:
                                "price": px, "shares": holdings[s]["shares"],
                                "cost": holdings[s]["cost"], "reason": reason})
                 del holdings[s]
+            pending_sells = still_pending_sells
 
-            # ---- batch inference ----
+            for s in pending_buys:
+                if s in holdings or s in pending_sells:
+                    continue
+                if len(holdings) >= self.max_positions:
+                    break
+                px = opens.get(s, prices.get(s))
+                if px is None or px <= 0:
+                    continue
+                prev_px = prev_prices.get(s)
+                limit = self._get_limit(s)
+                if prev_px and px >= prev_px * (1 + limit):
+                    continue
+                target_val = cash * self.single_pct
+                shares = max(int(target_val / px / 100) * 100, 100)
+                if shares * px > cash * 0.3:
+                    continue
+                cost = max(shares * px * self.commission, self.min_commission)
+                if shares * px + cost > cash:
+                    continue
+                cash -= shares * px + cost
+                holdings[s] = {"shares": shares, "cost": px, "highest": px}
+                trades.append({"date": str(td_date), "symbol": s, "action": "BUY",
+                               "price": px, "shares": shares})
+            pending_buys = []
+
+            # ---- batch inference using today's completed bar; orders execute next open ----
             scores = {}
             batch_x, batch_syms = [], []
             for s, sd in stock_data.items():
                 idx = sd["date_idx"].get(td_date)
-                if idx is None or idx < self.seq_len:
+                if idx is None or idx < self.seq_len - 1:
                     continue
-                x = sd["feat"][idx - self.seq_len : idx]
+                x = sd["feat"][idx - self.seq_len + 1 : idx + 1]
                 if mean is not None:
                     x = (x - mean) / (std + 1e-8)
                 batch_x.append(x)
@@ -158,41 +161,26 @@ class BacktestEngine:
             if batch_x:
                 self._infer_chunk(model, device, batch_x, batch_syms, scores)
 
-            # ---- sell holdings with negative score ----
-            to_sell = [s for s in holdings if scores.get(s, 0) < self.buy_threshold]
-            for s in to_sell:
-                px = prices.get(s, holdings[s]["cost"])
-                trade_val = px * holdings[s]["shares"]
-                cost = max(trade_val * self.commission, self.min_commission) + trade_val * self.stamp_tax
-                cash += trade_val - cost
-                trades.append({"date": str(td_date), "symbol": s, "action": "SELL",
-                               "price": px, "shares": holdings[s]["shares"],
-                               "cost": holdings[s]["cost"], "reason": "signal"})
-                del holdings[s]
+            # ---- generate next-open sell orders ----
+            for s, h in holdings.items():
+                px = prices.get(s, h["cost"])
+                pnl = (px - h["cost"]) / h["cost"]
+                if pnl <= -self.stop_loss:
+                    pending_sells[s] = "stop_loss"
+                elif pnl >= self.take_profit:
+                    pending_sells[s] = "take_profit"
+                elif scores.get(s, 0) < self.buy_threshold:
+                    pending_sells[s] = "signal"
+                else:
+                    h["highest"] = max(h.get("highest", px), px)
 
-            # ---- buy top-K stocks ----
-            slots = self.max_positions - len(holdings)
+            # ---- generate next-open buy orders ----
+            slots = self.max_positions - len(holdings) + len(pending_sells)
             if slots > 0:
                 candidates = [(s, v) for s, v in scores.items()
-                              if v > self.buy_threshold and s not in holdings]
+                              if v > self.buy_threshold and s not in holdings and s not in pending_sells]
                 candidates.sort(key=lambda x: x[1], reverse=True)
-
-                for s, _ in candidates[:slots]:
-                    px = prices.get(s)
-                    if px is None or px <= 0:
-                        continue
-                    target_val = cash * self.single_pct
-                    shares = max(int(target_val / px / 100) * 100, 100)
-                    if shares * px > cash * 0.3:  # don't spend >30% of cash on one lot
-                        continue
-                    cost = max(shares * px * self.commission, self.min_commission)
-                    if shares * px + cost > cash:
-                        continue
-                    cash -= shares * px + cost
-                    holdings[s] = {"shares": shares, "cost": px, "highest": px}
-                    pending_buys.add(s)
-                    trades.append({"date": str(td_date), "symbol": s, "action": "BUY",
-                                   "price": px, "shares": shares})
+                pending_buys = [s for s, _ in candidates[:slots]]
 
             # ---- mark equity ----
             total_mv = cash + sum(h["shares"] * prices.get(s, h["cost"])

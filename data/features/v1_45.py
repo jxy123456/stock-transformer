@@ -234,9 +234,16 @@ class V1_45FeatureEngine(BaseFeatureEngine):
             else:
                 fin[date_col] = pd.to_datetime(raw_dates, errors="coerce")
             fin = fin.dropna(subset=[date_col])
-            fin = fin.set_index(date_col).sort_index()
+            fin = fin.sort_values(date_col)
+            dates = pd.DatetimeIndex(pd.to_datetime(daily["datetime"].values))
+            effective_pos = dates.searchsorted(fin[date_col].values, side="right")
+            valid = effective_pos < len(dates)
+            fin = fin.loc[valid].copy()
+            if fin.empty:
+                raise ValueError("No financial reports are effective within the daily date range")
+            fin["_effective_date"] = dates[effective_pos[valid]].values
+            fin = fin.set_index("_effective_date").sort_index()
             fin = fin[~fin.index.duplicated(keep="last")]
-            dates = pd.to_datetime(daily["datetime"].values)
             combined_idx = fin.index.union(dates)
             fin = fin.reindex(combined_idx).ffill().reindex(dates)
             aligned = fin
