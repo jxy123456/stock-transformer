@@ -28,8 +28,12 @@ def create_model(cfg: dict):
     name = mc.get("type", "transformer")
     if name == "transformer":
         from model.transformer import StockMultiHorizonTransformer
+        from data.features.v1_45 import V1_45FeatureEngine
+        feature_dim = cfg.get("features", {}).get("feature_dim")
+        if feature_dim is None:
+            feature_dim = len(V1_45FeatureEngine(cfg, None).feature_columns)
         return StockMultiHorizonTransformer(
-            feature_dim=cfg.get("features", {}).get("feature_dim", 45),
+            feature_dim=feature_dim,
             seq_len=cfg.get("features", {}).get("seq_len", 120),
             d_model=mc.get("d_model", 128),
             nhead=mc.get("n_heads", 4),

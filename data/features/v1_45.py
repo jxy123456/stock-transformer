@@ -1,8 +1,7 @@
-"""45 特征方案。"""
+"""39 特征方案。"""
 
 import numpy as np
 import pandas as pd
-from loguru import logger
 
 from data.features.base import BaseFeatureEngine
 
@@ -22,13 +21,11 @@ LOSS_WEIGHTS = {"1d": 0.3, "5d": 0.4, "20d": 0.3}
 
 
 class V1_45FeatureEngine(BaseFeatureEngine):
-    """45-feature engine per the multi-horizon model spec."""
+    """39-feature engine per the multi-horizon model spec."""
 
-    def __init__(self, config: dict, cache, index_data=None, industry_map=None, industry_returns=None):
+    def __init__(self, config: dict, cache, index_data=None, **kwargs):
         super().__init__(config, cache)
         self.index_data = index_data or {}
-        self.industry_map = industry_map or {}
-        self.industry_returns = industry_returns or {}
 
     @property
     def feature_columns(self) -> list:
@@ -48,20 +45,19 @@ class V1_45FeatureEngine(BaseFeatureEngine):
             "volume_chg_5d", "amount_chg_5d", "volume_ratio_20d", "amount_ratio_20d",
             # 换手率 (2)
             "turnover_rate", "turnover_to_20d",
-            # 市值类 (4)
+            # 市值类 (3)
             "log_total_market_cap_max_norm", "log_float_market_cap_max_norm",
-            "total_market_cap_rank_market", "total_market_cap_rank_industry",
-            # 估值类 (3)
-            "earnings_yield", "book_to_price", "pe_rank_industry",
+            "total_market_cap_rank_market",
+            # 估值类 (2)
+            "earnings_yield", "book_to_price",
             # 基本面 (7)
             "revenue_yoy", "net_profit_yoy", "gross_margin", "net_margin",
             "roe", "debt_to_asset", "ocf_to_net_profit",
-            # 大盘+行业 (6)
+            # 大盘 (3)
             "market_ret_20d", "market_volatility_20d",
-            "industry_ret_20d", "industry_volatility_20d",
-            "excess_ret_market_20d", "excess_ret_industry_20d",
-            # 横截面排名 (2)
-            "ret_20d_rank_market", "ret_20d_rank_industry",
+            "excess_ret_market_20d",
+            # 横截面排名 (1)
+            "ret_20d_rank_market",
         ]
 
     # ---- individual stock computation ----
@@ -99,10 +95,8 @@ class V1_45FeatureEngine(BaseFeatureEngine):
         if not fin.empty:
             self._add_fundamental_features(result, daily, fin)
 
-        # market & industry features
+        # market features
         self._add_market_features(result, daily)
-        industry = self.industry_map.get(str(symbol).zfill(6), "unknown")
-        self._add_industry_features(result, daily, industry)
 
         result = result.drop(columns=["pre_close"])  # keep datetime + close
         return result
@@ -173,8 +167,8 @@ class V1_45FeatureEngine(BaseFeatureEngine):
         except Exception:
             for col in ["turnover_rate", "turnover_to_20d",
                          "log_total_market_cap_max_norm", "log_float_market_cap_max_norm",
-                         "total_market_cap_rank_market", "total_market_cap_rank_industry",
-                         "earnings_yield", "book_to_price", "pe_rank_industry"]:
+                         "total_market_cap_rank_market",
+                         "earnings_yield", "book_to_price"]:
                 df[col] = np.nan
             return
 
@@ -194,7 +188,7 @@ class V1_45FeatureEngine(BaseFeatureEngine):
             log_mc = np.log1p(mc)
             daily_max = log_mc.groupby(dates).transform("max")
             df["log_total_market_cap_max_norm"] = (log_mc / (daily_max + 1e-8)).values
-            df["total_market_cap_rank_market"] = np.nan  # filled by compute_batch
+            df["total_market_cap_rank_market"] = np.nan
         else:
             df["log_total_market_cap_max_norm"] = np.nan
             df["total_market_cap_rank_market"] = np.nan
@@ -207,14 +201,11 @@ class V1_45FeatureEngine(BaseFeatureEngine):
         else:
             df["log_float_market_cap_max_norm"] = np.nan
 
-        df["total_market_cap_rank_industry"] = np.nan  # deferred
-
-        # valuation (28-30)
+        # valuation
         pe = aligned.get("pe", pd.Series(np.nan, index=aligned.index))
         pb = aligned.get("pb", pd.Series(np.nan, index=aligned.index))
         df["earnings_yield"] = (1.0 / pe.replace(0, np.nan)).values
         df["book_to_price"] = (1.0 / pb.replace(0, np.nan)).values
-        df["pe_rank_industry"] = np.nan  # deferred
 
     # ---- fundamental features (31-37) ----
 
@@ -280,26 +271,6 @@ class V1_45FeatureEngine(BaseFeatureEngine):
         df["market_volatility_20d"] = idx_ret.rolling(20).std().values
         df["excess_ret_market_20d"] = df["ret_20d"].values - df["market_ret_20d"].values
 
-    # ---- industry features (40-41, 43) ----
-
-    def _add_industry_features(self, df, daily, industry):
-        ind = self.industry_returns.get(industry, pd.DataFrame())
-        if ind.empty:
-            for col in ["industry_ret_20d", "industry_volatility_20d", "excess_ret_industry_20d"]:
-                df[col] = np.nan
-            return
-        ind = ind.copy()
-        ind["datetime"] = pd.to_datetime(ind["datetime"])
-        ind = ind.set_index("datetime").sort_index()
-        ind_ret = ind["close"] / ind["close"].shift(1) - 1
-        # align to stock data
-        dates = pd.to_datetime(daily["datetime"])
-        ind_close = ind["close"].reindex(dates, method="ffill")
-        ind_ret_aligned = ind_close / ind_close.shift(1) - 1
-        df["industry_ret_20d"] = (ind_close / ind_close.shift(20) - 1).values
-        df["industry_volatility_20d"] = ind_ret_aligned.rolling(20).std().values
-        df["excess_ret_industry_20d"] = df["ret_20d"].values - df["industry_ret_20d"].values
-
     # ---- helpers ----
 
     @staticmethod
@@ -321,11 +292,6 @@ class V1_45FeatureEngine(BaseFeatureEngine):
             ("log_total_market_cap_max_norm", "total_market_cap_rank_market"),
             ("ret_20d", "ret_20d_rank_market"),
         ]
-        industry_rank_pairs = [
-            ("log_total_market_cap_max_norm", "total_market_cap_rank_industry"),
-            ("earnings_yield", "pe_rank_industry"),
-            ("ret_20d", "ret_20d_rank_industry"),
-        ]
 
         # collect values for this date
         vals = {}
@@ -337,7 +303,7 @@ class V1_45FeatureEngine(BaseFeatureEngine):
             row = df[df["datetime"] == date]
             if row.empty:
                 continue
-            for base_col, _ in rank_pairs + industry_rank_pairs:
+            for base_col, _ in rank_pairs:
                 if base_col in row.columns:
                     v = row[base_col].iloc[0]
                     if not pd.isna(v):
@@ -347,21 +313,6 @@ class V1_45FeatureEngine(BaseFeatureEngine):
         for base_col, rank_col in rank_pairs:
             if base_col in vals:
                 ranked = self._rank_pct(vals[base_col])
-                for s, r in ranked.items():
-                    result.setdefault(s, {})[rank_col] = r
-
-        # industry ranks
-        for base_col, rank_col in industry_rank_pairs:
-            if base_col not in vals:
-                continue
-            by_ind = {}
-            for s, v in vals[base_col].items():
-                ind = self.industry_map.get(s, "unknown")
-                by_ind.setdefault(ind, {})[s] = v
-            for ind, ind_vals in by_ind.items():
-                if len(ind_vals) < 3:
-                    continue
-                ranked = self._rank_pct(ind_vals)
                 for s, r in ranked.items():
                     result.setdefault(s, {})[rank_col] = r
 

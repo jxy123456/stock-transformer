@@ -114,6 +114,11 @@ def main():
     logger.info(f"Samples: train={train_mask.sum()}, val={val_mask.sum()}")
 
     # ---- preprocessing (simple) ----
+    all_nan_features = np.isnan(X_all[train_mask]).all(axis=(0, 1))
+    if all_nan_features.any():
+        missing_cols = [c for c, missing in zip(fcols, all_nan_features) if missing]
+        logger.warning(f"Train-only all-NaN features filled with 0: {missing_cols}")
+        X_all[:, :, all_nan_features] = 0.0
     lo = np.nanpercentile(X_all[train_mask], 1, axis=(0, 1))
     hi = np.nanpercentile(X_all[train_mask], 99, axis=(0, 1))
     X = np.clip(X_all, lo, hi)

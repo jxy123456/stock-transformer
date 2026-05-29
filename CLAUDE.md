@@ -1,6 +1,6 @@
-# Stock Data — A 股数据下载
+# Stock Data — A 股量化实验
 
-基于 akshare/tushare 双源的 A 股历史数据下载工具。
+基于 akshare/tushare 双源的 A 股数据、特征、训练和回测实验项目。
 
 ## 技术栈
 
@@ -10,16 +10,26 @@ Python 3.10+, akshare/tushare, pandas, Parquet, PyYAML, loguru
 
 | 目录 | 职责 |
 |------|------|
-| `data/` | 数据获取 (fetcher) + 本地缓存 (cache) |
+| `data/` | 数据获取、股票池、特征工程 |
 | `scripts/` | CLI 入口 (download_data / update_data) |
-| `config/` | YAML 配置 (default.yaml) |
-| `utils/` | 配置加载、日志、交易日历 |
+| `config/` | YAML 配置、实验配置、股票池 |
+| `pipeline/` | 数据集生成、实验编排 |
+| `training/` | Dataset、训练、评估 |
+| `backtest/` | 回测引擎 |
+| `utils/` | 配置加载、日志 |
 
 ## 数据流
 
 ```
-akshare/tushare API → fetcher → cache(Parquet) → outputs/data_cache/
+akshare/tushare API → cache(Parquet) → features(39列) → datasets(.npy) → training/backtest
 ```
+
+## 特征口径
+
+- 当前模型输入为 39 个特征，配置中 `feature_dim` 应为 39。
+- 行业收益、行业波动、行业超额收益、行业内排名已移除；当前不依赖行业指数或行业收益序列。
+- 特征缓存版本见 `data.features.base.FEATURE_CACHE_VERSION`。版本变化后必须重建 `outputs/features` 和 `outputs/datasets`。
+- 财务数据按公告日后的下一个交易日生效，避免公告日收盘后信息进入当日信号。
 
 ## 编码规范
 

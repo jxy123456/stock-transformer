@@ -100,17 +100,12 @@ def run_data_pipeline(config: dict = None):
     symbols = load_symbols(dc.get("stock_list", "liquid100"))
     logger.info(f"Stock list: {len(symbols)} symbols")
 
-    # ---- index & industry ----
+    # ---- index ----
     index_data = {}
     for idx in dc.get("indexes", ["000300"]):
         df = _load_parquet(cache_dir, "index", str(idx))
         if not df.empty:
             index_data[str(idx)] = df
-    industry_map = {}
-    ind_csv = Path(cache_dir) / "_industry_map.csv"
-    if ind_csv.exists():
-        ind_df = pd.read_csv(ind_csv)
-        industry_map = {str(s).zfill(6): ind for s, ind in zip(ind_df["symbol"], ind_df["industry"])}
 
     # ---- feature engine ----
     class _FC:
@@ -119,7 +114,7 @@ def run_data_pipeline(config: dict = None):
         def load_valuation(s, sym): return _load_parquet(cache_dir, "valuation", sym)
         def load_financial(s, sym): return _load_parquet(cache_dir, "financial", sym)
 
-    engine = V1_45FeatureEngine(config, _FC(cache_dir), index_data=index_data, industry_map=industry_map)
+    engine = V1_45FeatureEngine(config, _FC(cache_dir), index_data=index_data)
     feat_dir = Path("outputs/features")
     feat_dir.mkdir(parents=True, exist_ok=True)
     version_path = feat_dir / "_feature_cache_version.txt"
@@ -180,8 +175,6 @@ def run_data_pipeline(config: dict = None):
 
     mat_mcap = _build_matrix("log_total_market_cap_max_norm")
     mat_ret20 = _build_matrix("ret_20d")
-    mat_ey = _build_matrix("earnings_yield")
-
     rank_mcap = _rank_pct_matrix(mat_mcap)
     rank_ret20 = _rank_pct_matrix(mat_ret20)
 
@@ -191,26 +184,6 @@ def run_data_pipeline(config: dict = None):
         if idxs:
             df["total_market_cap_rank_market"] = rank_mcap[idxs, j]
             df["ret_20d_rank_market"] = rank_ret20[idxs, j]
-
-    # industry ranks
-    ind_groups = {}
-    for s in syms:
-        ind_groups.setdefault(industry_map.get(s, "unknown"), []).append(s)
-
-    for base_col, out_col in [("log_total_market_cap_max_norm", "total_market_cap_rank_industry"),
-                               ("earnings_yield", "pe_rank_industry"),
-                               ("ret_20d", "ret_20d_rank_industry")]:
-        mat = _build_matrix(base_col)
-        for ind, ind_syms in ind_groups.items():
-            if len(ind_syms) < 3:
-                continue
-            cols = [syms.index(x) for x in ind_syms]
-            sub_rank = _rank_pct_matrix(mat[:, cols])
-            for s, ci in zip(ind_syms, range(len(ind_syms))):
-                df = feature_dfs[s]
-                idxs = [date_to_idx[d] for d in pd.to_datetime(df["datetime"]).values if d in date_to_idx]
-                if idxs:
-                    df[out_col] = sub_rank[idxs, ci]
 
     for s, df in feature_dfs.items():
         df.to_parquet(feat_dir / f"{s}.parquet")
@@ -258,6 +231,12 @@ def run_data_pipeline(config: dict = None):
 
     # winsorize per feature on train
     X_train = X_all[train_mask]
+    all_nan_features = np.isnan(X_train).all(axis=(0, 1))
+    if all_nan_features.any():
+        missing_cols = [c for c, missing in zip(fcols, all_nan_features) if missing]
+        logger.warning(f"Train-only all-NaN features filled with 0: {missing_cols}")
+        X_all[:, :, all_nan_features] = 0.0
+        X_train = X_all[train_mask]
     lo = np.nanpercentile(X_train, 1, axis=(0, 1))
     hi = np.nanpercentile(X_train, 99, axis=(0, 1))
     X_all = np.clip(X_all, lo, hi)

@@ -1,5 +1,5 @@
 name: "baseline_v1"
-description: "45特征 + 4层Transformer + 全A选股"
+description: "39特征（不含行业特征） + 4层Transformer + liquid100选股"
 
 data:
   stock_list: "liquid100"
@@ -11,6 +11,7 @@ data:
 features:
   type: "v1_45"
   seq_len: 120
+  feature_dim: 39
 
 labels:
   periods: [1, 5, 20]

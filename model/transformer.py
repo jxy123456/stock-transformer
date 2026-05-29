@@ -1,4 +1,4 @@
-"""StockMultiHorizonTransformer: 4-layer Encoder + 三分类头。"""
+"""StockMultiHorizonTransformer: Transformer Encoder + 三周期分类头。"""
 
 import torch
 import torch.nn as nn
@@ -9,7 +9,7 @@ from model.base import BaseModel
 class StockMultiHorizonTransformer(BaseModel):
     def __init__(
         self,
-        feature_dim=45,
+        feature_dim=39,
         seq_len=120,
         d_model=128,
         nhead=4,

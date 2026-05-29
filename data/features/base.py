@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 
 
-FEATURE_CACHE_VERSION = "v2_no_lookahead"
+FEATURE_CACHE_VERSION = "v3_no_industry"
 
 
 class BaseFeatureEngine(ABC):

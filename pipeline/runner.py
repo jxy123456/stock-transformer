@@ -41,17 +41,15 @@ def run_experiment(exp_name: str, backtest_only=False, eval_only=False):
     start = dc.get("start_date", "2015-01-01")
     end = dc.get("end_date", "2025-12-31")
 
-    # load index & industry data from cache
+    # load index data from cache
     index_data = {}
     for idx in dc.get("indexes", ["000300"]):
         df = cache.load_index(str(idx))
         if not df.empty:
             index_data[str(idx)] = df
-    industry_map = cache.load_industry_map()
 
     # feature engine
-    engine = V1_45FeatureEngine(cfg, cache, index_data=index_data,
-                                industry_map=industry_map)
+    engine = V1_45FeatureEngine(cfg, cache, index_data=index_data)
 
     if not backtest_only:
         _do_train(cfg, engine, symbols, start, end, out_dir, cache)

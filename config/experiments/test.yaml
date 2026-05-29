@@ -11,6 +11,7 @@ data:
 features:
   type: "v1_45"
   seq_len: 120
+  feature_dim: 39
 
 labels:
   periods: [1, 5, 20]
