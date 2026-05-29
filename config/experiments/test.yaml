@@ -1,0 +1,56 @@
+name: "test"
+description: "小规模测试：10只股票 + 3年数据 + 2层模型 + 20轮"
+
+data:
+  stock_list: "liquid100"
+  start_date: "2020-01-01"
+  end_date: "2023-12-31"
+  cache_dir: "outputs/data_cache"
+  indexes: ["000300"]
+
+features:
+  type: "v1_45"
+  seq_len: 120
+
+labels:
+  periods: [1, 5, 20]
+
+preprocessing:
+  winsorize_pct: [0.01, 0.99]
+  normalization: "zscore"
+
+model:
+  type: "transformer"
+  d_model: 64
+  n_heads: 2
+  n_layers: 2
+  d_ff: 128
+  dropout: 0.1
+
+training:
+  batch_size: 128
+  epochs: 20
+  lr: 0.001
+  weight_decay: 0.0001
+  gradient_clip: 1.0
+  warmup_epochs: 2
+  loss_weights: {1d: 0.3, 5d: 0.4, 20d: 0.3}
+  early_stopping_patience: 5
+
+data_split:
+  train_end: "2022-06-30"
+  val_end:   "2023-06-30"
+
+backtest:
+  type: "event_driven"
+  initial_cash: 20000
+  max_positions: 5
+  single_pct: 0.20
+  commission: 0.0003
+  stamp_tax: 0.001
+  slippage: 0.0005
+  min_commission: 5.0
+  stop_loss: 0.08
+  take_profit: 0.15
+  buy_threshold: 0.0
+  scoring_weights: {1d: 0.2, 5d: 0.5, 20d: 0.3}

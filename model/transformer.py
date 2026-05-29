@@ -1,99 +1,75 @@
+"""StockMultiHorizonTransformer: 4-layer Encoder + 三分类头。"""
+
 import torch
 import torch.nn as nn
 
-from model.attention import AttentionPooling, MultiHeadSelfAttention
-from model.feed_forward import PositionWiseFeedForward
-from model.positional_encoding import PositionalEncoding
+from model.base import BaseModel
 
 
-class EncoderBlock(nn.Module):
-    def __init__(self, d_model: int, n_heads: int, d_ff: int, dropout: float = 0.1):
-        super().__init__()
-        self.attn = MultiHeadSelfAttention(d_model, n_heads, dropout)
-        self.ffn = PositionWiseFeedForward(d_model, d_ff, dropout)
-        self.norm1 = nn.LayerNorm(d_model)
-        self.norm2 = nn.LayerNorm(d_model)
-        self.dropout1 = nn.Dropout(dropout)
-        self.dropout2 = nn.Dropout(dropout)
-
-    def forward(self, x: torch.Tensor, mask: torch.Tensor = None) -> torch.Tensor:
-        # Pre-LN Transformer (more stable training)
-        normed = self.norm1(x)
-        x = x + self.dropout1(self.attn(normed, mask))
-        normed = self.norm2(x)
-        x = x + self.dropout2(self.ffn(normed))
-        return x
-
-
-class StockTransformer(nn.Module):
+class StockMultiHorizonTransformer(BaseModel):
     def __init__(
         self,
-        num_features: int,
-        d_model: int = 256,
-        n_heads: int = 8,
-        n_layers: int = 6,
-        d_ff: int = 1024,
-        num_classes: int = 8,
-        dropout: float = 0.15,
-        seq_len: int = 250,
-        pos_encoding: str = "sinusoidal",
-        pooling: str = "attention",
+        feature_dim=45,
+        seq_len=120,
+        d_model=128,
+        nhead=4,
+        num_layers=4,
+        dim_feedforward=256,
+        dropout=0.20,
+        num_bins_1d=7,
+        num_bins_5d=11,
+        num_bins_20d=11,
     ):
         super().__init__()
-        self.d_model = d_model
-        self.num_classes = num_classes
 
-        self.input_proj = nn.Linear(num_features, d_model)
-        self.pos_encoding = PositionalEncoding(
-            d_model, max_len=seq_len, learned=(pos_encoding == "learned")
-        )
-        self.encoder_blocks = nn.ModuleList(
-            [EncoderBlock(d_model, n_heads, d_ff, dropout) for _ in range(n_layers)]
-        )
-        self.norm = nn.LayerNorm(d_model)
+        self.feature_norm = nn.LayerNorm(feature_dim)
+        self.input_proj = nn.Linear(feature_dim, d_model)
+        self.pos_embedding = nn.Parameter(torch.zeros(1, seq_len, d_model))
 
-        if pooling == "attention":
-            self.pool = AttentionPooling(d_model)
-        else:
-            self.pool = None  # mean pooling
-
-        self.output_head = nn.Sequential(
-            nn.Linear(d_model, d_model // 2),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(d_model // 2, num_classes),
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model,
+            nhead=nhead,
+            dim_feedforward=dim_feedforward,
+            dropout=dropout,
+            activation="gelu",
+            batch_first=True,
+            norm_first=True,
         )
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+
+        self.head_1d = self._make_head(d_model, 64, num_bins_1d, dropout)
+        self.head_5d = self._make_head(d_model, 64, num_bins_5d, dropout)
+        self.head_20d = self._make_head(d_model, 64, num_bins_20d, dropout)
 
         self._init_weights()
 
+    def _make_head(self, d_model, hidden_dim, out_dim, dropout):
+        return nn.Sequential(
+            nn.LayerNorm(d_model),
+            nn.Linear(d_model, hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, out_dim),
+        )
+
     def _init_weights(self):
-        for p in self.parameters():
-            if p.dim() > 1:
-                nn.init.xavier_uniform_(p)
+        nn.init.trunc_normal_(self.pos_embedding, std=0.02)
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                nn.init.xavier_uniform_(module.weight)
+                if module.bias is not None:
+                    nn.init.zeros_(module.bias)
 
-    def forward(
-        self, x: torch.Tensor, mask: torch.Tensor = None
-    ) -> torch.Tensor:
-        # x: (batch, seq_len, num_features)
-        x = self.input_proj(x)  # (batch, seq_len, d_model)
-        x = self.pos_encoding(x)  # (batch, seq_len, d_model)
+    def forward(self, x, padding_mask=None):
+        x = self.feature_norm(x)
+        x = self.input_proj(x)
+        x = x + self.pos_embedding[:, :x.size(1), :]
 
-        for block in self.encoder_blocks:
-            x = block(x, mask)  # (batch, seq_len, d_model)
+        encoded = self.encoder(x, src_key_padding_mask=padding_mask)
+        last_hidden = encoded[:, -1, :]
 
-        x = self.norm(x)
-
-        if self.pool is not None:
-            pooled = self.pool(x)  # (batch, d_model)
-        else:
-            pooled = x.mean(dim=1)  # (batch, d_model)
-
-        out = self.output_head(pooled)  # (batch, num_classes)
-        return out
-
-    def get_attention_weights(self) -> list:
-        weights = []
-        for block in self.encoder_blocks:
-            if block.attn.attn_weights is not None:
-                weights.append(block.attn.attn_weights)
-        return weights
+        return {
+            "logits_1d": self.head_1d(last_hidden),
+            "logits_5d": self.head_5d(last_hidden),
+            "logits_20d": self.head_20d(last_hidden),
+        }

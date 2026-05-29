@@ -1,0 +1,505 @@
+name: liquid100
+description: 流动性前100（近60日日均成交额），上市满5年，排除ST，股价<=50
+generated_at: '2026-05-29T13:41:45.468477'
+symbols:
+- '000002'
+- '601899'
+- '600522'
+- '300058'
+- '002202'
+- '600105'
+- '600089'
+- '300059'
+- '002050'
+- '000547'
+- '603993'
+- '600410'
+- '002261'
+- '300017'
+- '000725'
+- 000938
+- '601179'
+- '600989'
+- '600703'
+- '000066'
+- '600330'
+- '000021'
+- '600150'
+- '002015'
+- '600875'
+- '000063'
+- 000792
+- '002407'
+- '600176'
+- '601600'
+- '600879'
+- '600276'
+- '002361'
+- '002506'
+- 000338
+- '600030'
+- '601872'
+- '601857'
+- '603601'
+- '300433'
+- '002436'
+- '000426'
+- '601012'
+- 001896
+- '600821'
+- 002185
+- '002342'
+- '600010'
+- '600036'
+- '600406'
+- '600673'
+- '601778'
+- 000592
+- 002491
+- '600900'
+- 002378
+- '300383'
+- '601016'
+- '300456'
+- '300166'
+- 002195
+- '601991'
+- '601669'
+- '603618'
+- 000960
+- '000617'
+- '002240'
+- '600988'
+- '600396'
+- 000815
+- '688158'
+- '603881'
+- '002273'
+- '600026'
+- '603778'
+- '002155'
+- '600096'
+- '300207'
+- '002241'
+- '601288'
+- '600589'
+- '002600'
+- '000636'
+- '601698'
+- '600666'
+- 000807
+- '600547'
+- '000630'
+- '002716'
+- '600028'
+- '300738'
+- '601398'
+- '300164'
+- '000070'
+- '600186'
+- '002714'
+- '603659'
+- '600667'
+- '002230'
+- '603538'
+details:
+- symbol: '000002'
+  name: 万科Ａ
+  avg_amount_60d: 16006112.61
+  price: 3.31
+- symbol: '601899'
+  name: 紫金矿业
+  avg_amount_60d: 10156309.07
+  price: 30.71
+- symbol: '600522'
+  name: 中天科技
+  avg_amount_60d: 7716461.63
+  price: 40.52
+- symbol: '300058'
+  name: 蓝色光标
+  avg_amount_60d: 6941975.95
+  price: 16.16
+- symbol: '002202'
+  name: 金风科技
+  avg_amount_60d: 6235269.77
+  price: 24.3
+- symbol: '600105'
+  name: 永鼎股份
+  avg_amount_60d: 5847281.62
+  price: 48.53
+- symbol: '600089'
+  name: 特变电工
+  avg_amount_60d: 5812786.2
+  price: 25.91
+- symbol: '300059'
+  name: 东方财富
+  avg_amount_60d: 5718594.21
+  price: 19.19
+- symbol: '002050'
+  name: 三花智控
+  avg_amount_60d: 5699045.13
+  price: 48.61
+- symbol: '000547'
+  name: 航天发展
+  avg_amount_60d: 5223398.58
+  price: 21.79
+- symbol: '603993'
+  name: 洛阳钼业
+  avg_amount_60d: 5208125.8
+  price: 18.8
+- symbol: '600410'
+  name: 华胜天成
+  avg_amount_60d: 4906519.52
+  price: 19.85
+- symbol: '002261'
+  name: 拓维信息
+  avg_amount_60d: 4860444.65
+  price: 30.86
+- symbol: '300017'
+  name: 网宿科技
+  avg_amount_60d: 4590303.28
+  price: 15.67
+- symbol: '000725'
+  name: 京东方Ａ
+  avg_amount_60d: 4555454.07
+  price: 5.68
+- symbol: 000938
+  name: 紫光股份
+  avg_amount_60d: 4413046.06
+  price: 28.92
+- symbol: '601179'
+  name: 中国西电
+  avg_amount_60d: 4287570.52
+  price: 16.55
+- symbol: '600989'
+  name: 宝丰能源
+  avg_amount_60d: 4170496.0
+  price: 24.92
+- symbol: '600703'
+  name: 三安光电
+  avg_amount_60d: 4139292.17
+  price: 16.85
+- symbol: '000066'
+  name: 中国长城
+  avg_amount_60d: 4035236.88
+  price: 18.71
+- symbol: '600330'
+  name: 天通股份
+  avg_amount_60d: 4010199.33
+  price: 34.33
+- symbol: '000021'
+  name: 深科技
+  avg_amount_60d: 3977113.21
+  price: 42.65
+- symbol: '600150'
+  name: 中国船舶
+  avg_amount_60d: 3937158.85
+  price: 38.18
+- symbol: '002015'
+  name: 协鑫能科
+  avg_amount_60d: 3918961.13
+  price: 23.0
+- symbol: '600875'
+  name: 东方电气
+  avg_amount_60d: 3901849.51
+  price: 36.92
+- symbol: '000063'
+  name: 中兴通讯
+  avg_amount_60d: 3857294.09
+  price: 38.3
+- symbol: 000792
+  name: 盐湖股份
+  avg_amount_60d: 3851596.03
+  price: 31.2
+- symbol: '002407'
+  name: 多氟多
+  avg_amount_60d: 3849844.14
+  price: 35.12
+- symbol: '600176'
+  name: 中国巨石
+  avg_amount_60d: 3845378.62
+  price: 43.48
+- symbol: '601600'
+  name: 中国铝业
+  avg_amount_60d: 3825868.96
+  price: 11.3
+- symbol: '600879'
+  name: 航天电子
+  avg_amount_60d: 3806741.57
+  price: 20.9
+- symbol: '600276'
+  name: 恒瑞医药
+  avg_amount_60d: 3685017.84
+  price: 48.0
+- symbol: '002361'
+  name: 神剑股份
+  avg_amount_60d: 3607881.36
+  price: 16.25
+- symbol: '002506'
+  name: 协鑫集成
+  avg_amount_60d: 3606151.5
+  price: 3.64
+- symbol: 000338
+  name: 潍柴动力
+  avg_amount_60d: 3538125.24
+  price: 35.31
+- symbol: '600030'
+  name: 中信证券
+  avg_amount_60d: 3525997.1
+  price: 25.35
+- symbol: '601872'
+  name: 招商轮船
+  avg_amount_60d: 3459833.69
+  price: 16.09
+- symbol: '601857'
+  name: 中国石油
+  avg_amount_60d: 3450847.12
+  price: 10.8
+- symbol: '603601'
+  name: 再升科技
+  avg_amount_60d: 3392016.02
+  price: 23.53
+- symbol: '300433'
+  name: 蓝思科技
+  avg_amount_60d: 3363870.66
+  price: 40.23
+- symbol: '002436'
+  name: 兴森科技
+  avg_amount_60d: 3346326.94
+  price: 36.34
+- symbol: '000426'
+  name: 兴业银锡
+  avg_amount_60d: 3103747.18
+  price: 39.59
+- symbol: '601012'
+  name: 隆基绿能
+  avg_amount_60d: 3077271.87
+  price: 14.35
+- symbol: 001896
+  name: 豫能控股
+  avg_amount_60d: 3066884.38
+  price: 15.69
+- symbol: '600821'
+  name: 金开新能
+  avg_amount_60d: 3046017.87
+  price: 8.17
+- symbol: 002185
+  name: 华天科技
+  avg_amount_60d: 3026257.49
+  price: 21.49
+- symbol: '002342'
+  name: 巨力索具
+  avg_amount_60d: 2995768.0
+  price: 12.01
+- symbol: '600010'
+  name: 包钢股份
+  avg_amount_60d: 2984058.24
+  price: 2.43
+- symbol: '600036'
+  name: 招商银行
+  avg_amount_60d: 2944228.53
+  price: 37.12
+- symbol: '600406'
+  name: 国电南瑞
+  avg_amount_60d: 2896825.47
+  price: 25.1
+- symbol: '600673'
+  name: 东阳光
+  avg_amount_60d: 2895556.33
+  price: 39.31
+- symbol: '601778'
+  name: 晶科科技
+  avg_amount_60d: 2875124.87
+  price: 6.26
+- symbol: 000592
+  name: 平潭发展
+  avg_amount_60d: 2860264.41
+  price: 8.88
+- symbol: 002491
+  name: 通鼎互联
+  avg_amount_60d: 2845638.1
+  price: 23.12
+- symbol: '600900'
+  name: 长江电力
+  avg_amount_60d: 2770493.05
+  price: 27.22
+- symbol: 002378
+  name: 章源钨业
+  avg_amount_60d: 2764575.9
+  price: 28.56
+- symbol: '300383'
+  name: 光环新网
+  avg_amount_60d: 2758026.24
+  price: 14.51
+- symbol: '601016'
+  name: 节能风电
+  avg_amount_60d: 2702849.02
+  price: 4.87
+- symbol: '300456'
+  name: 赛微电子
+  avg_amount_60d: 2682986.55
+  price: 46.48
+- symbol: '300166'
+  name: 东方国信
+  avg_amount_60d: 2626753.51
+  price: 17.71
+- symbol: 002195
+  name: 岩山科技
+  avg_amount_60d: 2568079.65
+  price: 7.77
+- symbol: '601991'
+  name: 大唐发电
+  avg_amount_60d: 2553678.24
+  price: 8.0
+- symbol: '601669'
+  name: 中国电建
+  avg_amount_60d: 2546640.02
+  price: 5.25
+- symbol: '603618'
+  name: 杭电股份
+  avg_amount_60d: 2522850.49
+  price: 38.83
+- symbol: 000960
+  name: 锡业股份
+  avg_amount_60d: 2461535.47
+  price: 38.77
+- symbol: '000617'
+  name: 中油资本
+  avg_amount_60d: 2460760.78
+  price: 7.77
+- symbol: '002240'
+  name: 盛新锂能
+  avg_amount_60d: 2458688.49
+  price: 47.16
+- symbol: '600988'
+  name: 赤峰黄金
+  avg_amount_60d: 2447635.55
+  price: 34.0
+- symbol: '600396'
+  name: 华电辽能
+  avg_amount_60d: 2439071.1
+  price: 19.26
+- symbol: 000815
+  name: 美利云
+  avg_amount_60d: 2437248.45
+  price: 16.85
+- symbol: '688158'
+  name: 优刻得-W
+  avg_amount_60d: 2433327.89
+  price: 40.75
+- symbol: '603881'
+  name: 数据港
+  avg_amount_60d: 2417714.26
+  price: 37.13
+- symbol: '002273'
+  name: 水晶光电
+  avg_amount_60d: 2394542.61
+  price: 43.73
+- symbol: '600026'
+  name: 中远海能
+  avg_amount_60d: 2363823.0
+  price: 19.85
+- symbol: '603778'
+  name: 国晟科技
+  avg_amount_60d: 2342157.78
+  price: 17.1
+- symbol: '002155'
+  name: 湖南黄金
+  avg_amount_60d: 2334812.97
+  price: 24.64
+- symbol: '600096'
+  name: 云天化
+  avg_amount_60d: 2314574.28
+  price: 30.96
+- symbol: '300207'
+  name: 欣旺达
+  avg_amount_60d: 2313947.93
+  price: 23.87
+- symbol: '002241'
+  name: 歌尔股份
+  avg_amount_60d: 2313841.15
+  price: 28.4
+- symbol: '601288'
+  name: 农业银行
+  avg_amount_60d: 2307743.19
+  price: 6.21
+- symbol: '600589'
+  name: 大位科技
+  avg_amount_60d: 2303501.24
+  price: 11.95
+- symbol: '002600'
+  name: 领益智造
+  avg_amount_60d: 2292166.19
+  price: 15.95
+- symbol: '000636'
+  name: 风华高科
+  avg_amount_60d: 2257500.47
+  price: 48.64
+- symbol: '601698'
+  name: 中国卫通
+  avg_amount_60d: 2236134.76
+  price: 31.75
+- symbol: '600666'
+  name: 奥瑞德
+  avg_amount_60d: 2235246.23
+  price: 4.73
+- symbol: 000807
+  name: 云铝股份
+  avg_amount_60d: 2226063.23
+  price: 28.77
+- symbol: '600547'
+  name: 山东黄金
+  avg_amount_60d: 2225130.17
+  price: 28.96
+- symbol: '000630'
+  name: 铜陵有色
+  avg_amount_60d: 2197469.42
+  price: 6.75
+- symbol: '002716'
+  name: 湖南白银
+  avg_amount_60d: 2174428.12
+  price: 9.65
+- symbol: '600028'
+  name: 中国石化
+  avg_amount_60d: 2170691.3
+  price: 4.81
+- symbol: '300738'
+  name: 奥飞数据
+  avg_amount_60d: 2164163.29
+  price: 23.1
+- symbol: '601398'
+  name: 工商银行
+  avg_amount_60d: 2157670.85
+  price: 7.04
+- symbol: '300164'
+  name: 通源石油
+  avg_amount_60d: 2157646.94
+  price: 10.35
+- symbol: '000070'
+  name: 特发信息
+  avg_amount_60d: 2156828.47
+  price: 17.84
+- symbol: '600186'
+  name: 莲花控股
+  avg_amount_60d: 2153840.47
+  price: 10.95
+- symbol: '002714'
+  name: 牧原股份
+  avg_amount_60d: 2144749.5
+  price: 37.05
+- symbol: '603659'
+  name: 璞泰来
+  avg_amount_60d: 2132278.71
+  price: 30.67
+- symbol: '600667'
+  name: 太极实业
+  avg_amount_60d: 2120672.7
+  price: 13.63
+- symbol: '002230'
+  name: 科大讯飞
+  avg_amount_60d: 2120381.58
+  price: 49.13
+- symbol: '603538'
+  name: 美诺华
+  avg_amount_60d: 2110682.51
+  price: 45.5
