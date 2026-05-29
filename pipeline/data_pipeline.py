@@ -248,20 +248,22 @@ def run_data_pipeline(config: dict = None):
     logger.info("=== Step 4: 预处理 ===")
     train_mask = splits == 0
 
-    # winsorize per column on train
+    # winsorize per feature on train
     X_train = X_all[train_mask]
-    lo = np.nanpercentile(X_train, 1, axis=0)
-    hi = np.nanpercentile(X_train, 99, axis=0)
+    lo = np.nanpercentile(X_train, 1, axis=(0, 1))
+    hi = np.nanpercentile(X_train, 99, axis=(0, 1))
     X_all = np.clip(X_all, lo, hi)
 
     # fill remaining NaN with column mean from train
-    col_means = np.nanmean(X_all[train_mask], axis=0)
+    col_means = np.nanmean(X_all[train_mask], axis=(0, 1))
+    col_means = np.nan_to_num(col_means, nan=0.0)
     nan_mask = np.isnan(X_all)
-    X_all[nan_mask] = np.take(col_means, np.where(nan_mask)[1])
+    nan_idx = np.where(nan_mask)
+    X_all[nan_idx] = col_means[nan_idx[2]]
 
     # zscore on train
-    mean = X_all[train_mask].mean(axis=0)
-    std = X_all[train_mask].std(axis=0)
+    mean = X_all[train_mask].mean(axis=(0, 1))
+    std = X_all[train_mask].std(axis=(0, 1))
     std = np.where(std < 1e-8, 1.0, std)
 
     # skip rank/norm columns

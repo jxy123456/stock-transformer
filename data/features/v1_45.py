@@ -220,7 +220,7 @@ class V1_45FeatureEngine(BaseFeatureEngine):
 
     def _add_fundamental_features(self, df, daily, fin: pd.DataFrame):
         fin = fin.copy()
-        date_col = "report_date" if "report_date" in fin.columns else "end_date"
+        date_col = "report_date" if "report_date" in fin.columns else "ann_date" if "ann_date" in fin.columns else None
         if date_col not in fin.columns:
             for col in ["revenue_yoy", "net_profit_yoy", "gross_margin",
                          "net_margin", "roe", "debt_to_asset", "ocf_to_net_profit"]:
@@ -228,7 +228,11 @@ class V1_45FeatureEngine(BaseFeatureEngine):
             return
 
         try:
-            fin[date_col] = pd.to_datetime(fin[date_col], errors="coerce")
+            raw_dates = fin[date_col]
+            if pd.api.types.is_numeric_dtype(raw_dates) or raw_dates.astype(str).str.fullmatch(r"\d{8}").all():
+                fin[date_col] = pd.to_datetime(raw_dates.astype(str), format="%Y%m%d", errors="coerce")
+            else:
+                fin[date_col] = pd.to_datetime(raw_dates, errors="coerce")
             fin = fin.dropna(subset=[date_col])
             fin = fin.set_index(date_col).sort_index()
             fin = fin[~fin.index.duplicated(keep="last")]
@@ -262,9 +266,11 @@ class V1_45FeatureEngine(BaseFeatureEngine):
         idx = idx.copy()
         idx["datetime"] = pd.to_datetime(idx["datetime"])
         idx = idx.set_index("datetime").sort_index()
-        idx_ret = idx["close"] / idx["close"].shift(1) - 1
-        df["market_ret_20d"] = idx["close"] / idx["close"].shift(20) - 1
-        df["market_volatility_20d"] = idx_ret.rolling(20).std()
+        dates = pd.to_datetime(daily["datetime"])
+        idx_close = idx["close"].reindex(dates, method="ffill")
+        idx_ret = idx_close / idx_close.shift(1) - 1
+        df["market_ret_20d"] = (idx_close / idx_close.shift(20) - 1).values
+        df["market_volatility_20d"] = idx_ret.rolling(20).std().values
         df["excess_ret_market_20d"] = df["ret_20d"].values - df["market_ret_20d"].values
 
     # ---- industry features (40-41, 43) ----

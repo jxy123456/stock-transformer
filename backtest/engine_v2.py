@@ -15,16 +15,18 @@ from data.features.v1_45 import CENTERS_1D, CENTERS_5D, CENTERS_20D
 
 class BacktestEngine:
     def __init__(self, config: dict):
+        self.config = config
         bc = config.get("backtest", {})
+        risk = bc.get("risk", {})
         self.initial_cash = bc.get("initial_cash", 20_000)
-        self.max_positions = bc.get("max_positions", 5)
-        self.single_pct = bc.get("single_pct", 0.20)
+        self.max_positions = bc.get("max_positions", risk.get("max_positions", 5))
+        self.single_pct = bc.get("single_pct", risk.get("single_pct", 0.20))
         self.commission = bc.get("commission", 0.0003)
         self.stamp_tax = bc.get("stamp_tax", 0.001)
         self.slippage = bc.get("slippage", 0.0005)
         self.min_commission = bc.get("min_commission", 5.0)
-        self.stop_loss = bc.get("stop_loss", 0.08)
-        self.take_profit = bc.get("take_profit", 0.15)
+        self.stop_loss = bc.get("stop_loss", risk.get("stop_loss", 0.08))
+        self.take_profit = bc.get("take_profit", risk.get("take_profit", 0.15))
         self.scoring_weights = bc.get("scoring_weights", {"1d": 0.2, "5d": 0.5, "20d": 0.3})
         self.buy_threshold = bc.get("buy_threshold", 0.0)
         self.seq_len = config.get("features", {}).get("seq_len", 120)
@@ -37,11 +39,14 @@ class BacktestEngine:
         std = np.array(norm_stats.get("std", [])) if norm_stats else None
         feature_cols = norm_stats.get("feature_columns", []) if norm_stats else []
 
-        # ---- build common date index from feature data ----
+        # ---- build common date index, filter to test period ----
+        ds_cfg = self.config.get("data_split", {})
+        test_start = pd.Timestamp(ds_cfg.get("val_end", "2023-12-31"))
         all_dates = sorted(set().union(*[
             set(pd.to_datetime(df["datetime"]).values) for df in feature_dfs.values()
         ]))
-        logger.info(f"Backtest: {len(all_dates)} trading days, {len(feature_dfs)} stocks")
+        all_dates = [d for d in all_dates if pd.Timestamp(d) > test_start]
+        logger.info(f"Backtest: {len(all_dates)} test days ({test_start.date()}~), {len(feature_dfs)} stocks")
 
         # prepare pre-loaded numpy arrays per stock for fast slicing
         stock_data = {}
@@ -107,7 +112,8 @@ class BacktestEngine:
             for s in to_remove:
                 cash += holdings[s]["shares"] * prices.get(s, holdings[s]["cost"]) * 0.998
                 trades.append({"date": str(td_date), "symbol": s, "action": "SELL",
-                               "price": prices.get(s), "shares": holdings[s]["shares"], "reason": "limit_hit"})
+                               "price": prices.get(s), "shares": holdings[s]["shares"],
+                               "cost": holdings[s]["cost"], "reason": "limit_hit"})
                 del holdings[s]
 
             pending_buys.clear()
@@ -130,28 +136,27 @@ class BacktestEngine:
                 cost = max(trade_val * self.commission, self.min_commission) + trade_val * self.stamp_tax
                 cash += trade_val - cost
                 trades.append({"date": str(td_date), "symbol": s, "action": "SELL",
-                               "price": px, "shares": holdings[s]["shares"], "reason": reason})
+                               "price": px, "shares": holdings[s]["shares"],
+                               "cost": holdings[s]["cost"], "reason": reason})
                 del holdings[s]
 
-            # ---- generate predictions ----
+            # ---- batch inference ----
             scores = {}
+            batch_x, batch_syms = [], []
             for s, sd in stock_data.items():
                 idx = sd["date_idx"].get(td_date)
                 if idx is None or idx < self.seq_len:
                     continue
                 x = sd["feat"][idx - self.seq_len : idx]
                 if mean is not None:
-                    x = (x - mean[: x.shape[1]]) / (std[: x.shape[1]] + 1e-8)
-                x_t = torch.FloatTensor(x).unsqueeze(0).to(device)
-                with torch.no_grad():
-                    out = model(x_t)
-                er_1d = float(softmax(out["logits_1d"].cpu().numpy(), axis=-1) @ CENTERS_1D)
-                er_5d = float(softmax(out["logits_5d"].cpu().numpy(), axis=-1) @ CENTERS_5D)
-                er_20d = float(softmax(out["logits_20d"].cpu().numpy(), axis=-1) @ CENTERS_20D)
-                score = (self.scoring_weights["1d"] * er_1d +
-                         self.scoring_weights["5d"] * er_5d +
-                         self.scoring_weights["20d"] * er_20d)
-                scores[s] = score
+                    x = (x - mean) / (std + 1e-8)
+                batch_x.append(x)
+                batch_syms.append(s)
+                if len(batch_x) >= 256:  # process in chunks to avoid OOM
+                    self._infer_chunk(model, device, batch_x, batch_syms, scores)
+                    batch_x, batch_syms = [], []
+            if batch_x:
+                self._infer_chunk(model, device, batch_x, batch_syms, scores)
 
             # ---- sell holdings with negative score ----
             to_sell = [s for s in holdings if scores.get(s, 0) < self.buy_threshold]
@@ -161,7 +166,8 @@ class BacktestEngine:
                 cost = max(trade_val * self.commission, self.min_commission) + trade_val * self.stamp_tax
                 cash += trade_val - cost
                 trades.append({"date": str(td_date), "symbol": s, "action": "SELL",
-                               "price": px, "shares": holdings[s]["shares"], "reason": "signal"})
+                               "price": px, "shares": holdings[s]["shares"],
+                               "cost": holdings[s]["cost"], "reason": "signal"})
                 del holdings[s]
 
             # ---- buy top-K stocks ----
@@ -195,6 +201,18 @@ class BacktestEngine:
             prev_prices = prices
 
         return self._compute_metrics(equity, trades), equity, trades
+
+    def _infer_chunk(self, model, device, batch_x, batch_syms, scores):
+        x_t = torch.FloatTensor(np.stack(batch_x)).to(device)
+        with torch.no_grad():
+            out = model(x_t)
+        er1 = softmax(out["logits_1d"].cpu().numpy(), axis=-1) @ CENTERS_1D
+        er5 = softmax(out["logits_5d"].cpu().numpy(), axis=-1) @ CENTERS_5D
+        er20 = softmax(out["logits_20d"].cpu().numpy(), axis=-1) @ CENTERS_20D
+        for i, s in enumerate(batch_syms):
+            scores[s] = (self.scoring_weights["1d"] * er1[i].item() +
+                         self.scoring_weights["5d"] * er5[i].item() +
+                         self.scoring_weights["20d"] * er20[i].item())
 
     def _get_limit(self, symbol: str) -> float:
         if symbol.startswith("300") or symbol.startswith("688"):
