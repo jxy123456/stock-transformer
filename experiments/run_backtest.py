@@ -73,9 +73,14 @@ def main():
     model = model.to(device)
 
     # ---- load checkpoint ----
-    ckpt = torch.load(args.checkpoint, map_location=device, weights_only=True)
-    model.load_state_dict(ckpt.get("model_state", ckpt))
+    ckpt = torch.load(args.checkpoint, map_location=device, weights_only=False)
+    model.load_state_dict(ckpt["model_state"])
     logger.info(f"Loaded checkpoint: {args.checkpoint}")
+
+    # use checkpoint's norm stats if available (prefer over norm_stats.json)
+    if "mean" in ckpt:
+        norm_stats = {"feature_columns": ckpt.get("feature_columns", []),
+                       "mean": ckpt["mean"], "std": ckpt["std"]}
 
     # ---- run backtest ----
     engine = BacktestEngine(config)

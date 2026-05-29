@@ -110,12 +110,15 @@ def main():
     logger.info(f"Samples: train={train_mask.sum()}, val={val_mask.sum()}")
 
     # ---- preprocessing (simple) ----
-    lo = np.nanpercentile(X_all[train_mask], 1, axis=0)
-    hi = np.nanpercentile(X_all[train_mask], 99, axis=0)
+    lo = np.nanpercentile(X_all[train_mask], 1, axis=(0, 1))
+    hi = np.nanpercentile(X_all[train_mask], 99, axis=(0, 1))
     X = np.clip(X_all, lo, hi)
-    X = np.nan_to_num(X, nan=0.0)
-    mean = X[train_mask].mean(axis=0)
-    std = X[train_mask].std(axis=0)
+    col_means = np.nanmean(X[train_mask], axis=(0, 1))
+    col_means = np.nan_to_num(col_means, nan=0.0)
+    nan_idx = np.where(np.isnan(X))
+    X[nan_idx] = col_means[nan_idx[2]]
+    mean = X[train_mask].mean(axis=(0, 1))
+    std = X[train_mask].std(axis=(0, 1))
     std = np.where(std < 1e-8, 1.0, std)
     X = (X - mean) / std
 
