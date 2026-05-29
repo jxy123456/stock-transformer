@@ -44,7 +44,8 @@ training:
   gradient_clip: 1.0
   warmup_epochs: 5
   loss_weights: {5d: 0.6, 20d: 0.4}
-  early_stopping_patience: 15
+  early_stopping_patience: 8
+  early_stopping_min_delta: 0.001
 
 data_split:
   train_end: "2022-12-31"

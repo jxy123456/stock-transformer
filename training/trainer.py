@@ -32,6 +32,7 @@ class Trainer:
         self.scaler = torch.amp.GradScaler("cuda", enabled=self.mixed_precision)
         self.epochs = tcfg.get("epochs", 100)
         self.patience = tcfg.get("early_stopping_patience", 15)
+        self.min_delta = tcfg.get("early_stopping_min_delta", 0.0)
         self.clip_norm = tcfg.get("gradient_clip", 1.0)
         self.warmup_epochs = tcfg.get("warmup_epochs", 5)
         self.lr = tcfg.get("lr", 1e-4)
@@ -125,7 +126,7 @@ class Trainer:
                     f"train={train_loss:.6f} val={val_loss:.6f} | lr={lr:.2e} | {elapsed:.1f}s"
                 )
 
-            if val_loss < self.best_val_loss:
+            if val_loss < self.best_val_loss - self.min_delta:
                 self.best_val_loss = val_loss
                 self.patience_counter = 0
                 path = ckpt_dir / f"{name}_fold{fold}_best.pt"
