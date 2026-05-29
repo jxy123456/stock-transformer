@@ -141,15 +141,26 @@ def main():
 
     train_ds = ArrayDataset(X_all[train_mask], Y_all[train_mask])
     val_ds = ArrayDataset(X_all[val_mask], Y_all[val_mask])
-    bc = config["training"].get("batch_size", 256)
-    train_loader = DataLoader(train_ds, batch_size=bc, shuffle=True, pin_memory=True)
-    val_loader = DataLoader(val_ds, batch_size=bc, shuffle=False, pin_memory=True)
+    tcfg = config["training"]
+    bc = tcfg.get("batch_size", 256)
+    num_workers = tcfg.get("num_workers", 4)
+    loader_kwargs = {
+        "batch_size": bc,
+        "num_workers": num_workers,
+        "pin_memory": torch.cuda.is_available(),
+        "persistent_workers": num_workers > 0,
+    }
+    if num_workers > 0:
+        loader_kwargs["prefetch_factor"] = tcfg.get("prefetch_factor", 4)
+    train_loader = DataLoader(train_ds, shuffle=True, **loader_kwargs)
+    val_loader = DataLoader(val_ds, shuffle=False, **loader_kwargs)
 
     # ---- train ----
     model = create_model(config)
     logger.info(f"Params: {sum(p.numel() for p in model.parameters()):,}")
     trainer = create_trainer(model, config)
     history = trainer.train(train_loader, val_loader, name=config["name"], fold=0)
+    device = trainer.device
 
     # ---- save ----
     out = Path("outputs/checkpoints")
@@ -169,7 +180,6 @@ def main():
     # ---- eval ----
     logger.info("Evaluating...")
     model.eval()
-    device = next(model.parameters()).device
     correct_1d, correct_5d, correct_20d, total = 0, 0, 0, 0
     with torch.no_grad():
         for x, y in val_loader:

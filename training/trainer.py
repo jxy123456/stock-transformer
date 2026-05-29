@@ -19,6 +19,17 @@ class Trainer:
         self.model = self.model.to(self.device)
 
         tcfg = config.get("training", {})
+        self.data_parallel = (
+            self.device.startswith("cuda")
+            and tcfg.get("data_parallel", True)
+            and torch.cuda.device_count() > 1
+        )
+        if self.data_parallel:
+            device_ids = tcfg.get("device_ids")
+            self.model = nn.DataParallel(self.model, device_ids=device_ids)
+
+        self.mixed_precision = self.device.startswith("cuda") and tcfg.get("mixed_precision", True)
+        self.scaler = torch.amp.GradScaler("cuda", enabled=self.mixed_precision)
         self.epochs = tcfg.get("epochs", 100)
         self.patience = tcfg.get("early_stopping_patience", 15)
         self.clip_norm = tcfg.get("gradient_clip", 1.0)
@@ -35,24 +46,32 @@ class Trainer:
         self.patience_counter = 0
         self.history = {"train_loss": [], "val_loss": []}
 
+    def _state_dict(self):
+        model = self.model.module if isinstance(self.model, nn.DataParallel) else self.model
+        return model.state_dict()
+
     def train_epoch(self, loader: DataLoader) -> float:
         self.model.train()
         total = 0.0
         for x, y in loader:
-            x, y = x.to(self.device), y.to(self.device)
+            x = x.to(self.device, non_blocking=True)
+            y = y.to(self.device, non_blocking=True)
             y1, y5, y20 = y[:, 0], y[:, 1], y[:, 2]
 
-            out = self.model(x)
-            loss = (
-                self.loss_weights["1d"] * self.criterion(out["logits_1d"], y1) +
-                self.loss_weights["5d"] * self.criterion(out["logits_5d"], y5) +
-                self.loss_weights["20d"] * self.criterion(out["logits_20d"], y20)
-            )
+            with torch.amp.autocast("cuda", enabled=self.mixed_precision):
+                out = self.model(x)
+                loss = (
+                    self.loss_weights["1d"] * self.criterion(out["logits_1d"], y1) +
+                    self.loss_weights["5d"] * self.criterion(out["logits_5d"], y5) +
+                    self.loss_weights["20d"] * self.criterion(out["logits_20d"], y20)
+                )
 
-            self.optimizer.zero_grad()
-            loss.backward()
+            self.optimizer.zero_grad(set_to_none=True)
+            self.scaler.scale(loss).backward()
+            self.scaler.unscale_(self.optimizer)
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.clip_norm)
-            self.optimizer.step()
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
             total += loss.item()
         return total / max(len(loader), 1)
 
@@ -61,14 +80,16 @@ class Trainer:
         self.model.eval()
         total = 0.0
         for x, y in loader:
-            x, y = x.to(self.device), y.to(self.device)
+            x = x.to(self.device, non_blocking=True)
+            y = y.to(self.device, non_blocking=True)
             y1, y5, y20 = y[:, 0], y[:, 1], y[:, 2]
-            out = self.model(x)
-            loss = (
-                self.loss_weights["1d"] * self.criterion(out["logits_1d"], y1) +
-                self.loss_weights["5d"] * self.criterion(out["logits_5d"], y5) +
-                self.loss_weights["20d"] * self.criterion(out["logits_20d"], y20)
-            )
+            with torch.amp.autocast("cuda", enabled=self.mixed_precision):
+                out = self.model(x)
+                loss = (
+                    self.loss_weights["1d"] * self.criterion(out["logits_1d"], y1) +
+                    self.loss_weights["5d"] * self.criterion(out["logits_5d"], y5) +
+                    self.loss_weights["20d"] * self.criterion(out["logits_20d"], y20)
+                )
             total += loss.item()
         return total / max(len(loader), 1)
 
@@ -76,7 +97,12 @@ class Trainer:
               name="model", fold=0):
         ckpt_dir = Path(checkpoint_dir)
         ckpt_dir.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Training on {self.device}, {self.epochs} epochs max")
+        n_gpus = torch.cuda.device_count() if self.device.startswith("cuda") else 0
+        logger.info(
+            f"Training on {self.device}, gpus={n_gpus}, "
+            f"data_parallel={self.data_parallel}, amp={self.mixed_precision}, "
+            f"{self.epochs} epochs max"
+        )
 
         for epoch in range(self.epochs):
             if epoch < self.warmup_epochs:
@@ -106,7 +132,7 @@ class Trainer:
                 self.patience_counter = 0
                 path = ckpt_dir / f"{name}_fold{fold}_best.pt"
                 torch.save({
-                    "model_state": self.model.state_dict(),
+                    "model_state": self._state_dict(),
                     "optimizer_state": self.optimizer.state_dict(),
                     "epoch": epoch, "val_loss": val_loss,
                 }, path)
@@ -123,8 +149,9 @@ class Trainer:
         self.model.eval()
         out_1d, out_5d, out_20d = [], [], []
         for x, _ in loader:
-            x = x.to(self.device)
-            o = self.model(x)
+            x = x.to(self.device, non_blocking=True)
+            with torch.amp.autocast("cuda", enabled=self.mixed_precision):
+                o = self.model(x)
             out_1d.append(o["logits_1d"].cpu().numpy())
             out_5d.append(o["logits_5d"].cpu().numpy())
             out_20d.append(o["logits_20d"].cpu().numpy())
